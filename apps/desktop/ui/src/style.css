@@ -382,9 +382,7 @@ textarea:focus,
 .action-btn:focus,
 .model-select:focus,
 .send-btn:focus,
-.stop-btn:focus,
-.attach-trigger:focus,
-.attach-option:focus {
+.stop-btn:focus {
   outline: none;
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
@@ -666,132 +664,6 @@ textarea:focus,
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-}
-
-.toolbar-left,
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.pending-files {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pending-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.file-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.62);
-  box-shadow: var(--shadow-sm);
-}
-
-.file-name {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-main);
-}
-
-.file-remove {
-  border: none;
-  background: transparent;
-  color: var(--accent-deep);
-  cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-}
-
-.attach-menu {
-  position: relative;
-}
-
-.attach-trigger {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--text-soft);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: transform 140ms ease, background 140ms ease, color 140ms ease;
-}
-
-.attach-trigger:hover,
-.attach-trigger.active {
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--text-main);
-  transform: translateY(-1px);
-}
-
-.attach-trigger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.attach-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 10;
-  min-width: 140px;
-  padding: 6px;
-  border-radius: 14px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-panel-strong);
-  box-shadow: var(--shadow-lg);
-}
-
-.attach-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text-main);
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 140ms ease;
-}
-
-.attach-option:hover {
-  background: rgba(217, 93, 57, 0.1);
-}
-
-.attach-option-icon {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-deep);
-  font-size: 16px;
-  font-weight: 500;
 }
 
 .composer-model {
