@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false
+  },
+  "exclude": ["node_modules", "dist", "target", "temp", "apps/desktop/ui"]
+}

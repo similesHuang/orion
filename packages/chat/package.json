@@ -1,0 +1,23 @@
+{
+  "name": "@orion/chat",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chat frontend utilities and command handlers for Orion",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@orion/agent": "workspace:*",
+    "@orion/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

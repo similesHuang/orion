@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false
+  },
+  "references": [
+    { "path": "./packages/types" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/tools" },
+    { "path": "./packages/llm" },
+    { "path": "./packages/memory" },
+    { "path": "./packages/chat" },
+    { "path": "./packages/agent" },
+    { "path": "./packages/reflect" },
+    { "path": "./packages/core" },
+    { "path": "./apps/cli" },
+    { "path": "./apps/gateway" }
+  ]
+}

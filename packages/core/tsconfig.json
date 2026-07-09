@@ -1,0 +1,33 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../agent"
+    },
+    {
+      "path": "../llm"
+    },
+    {
+      "path": "../memory"
+    },
+    {
+      "path": "../reflect"
+    },
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../tools"
+    },
+    {
+      "path": "../types"
+    }
+  ]
+}

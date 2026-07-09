@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./src-tauri/dist/sidecar",
+    "rootDir": "./sidecar"
+  },
+  "include": ["sidecar/*.ts"]
+}

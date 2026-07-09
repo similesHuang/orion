@@ -1,0 +1,19 @@
+{
+  "name": "@orion/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared utilities for Orion packages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

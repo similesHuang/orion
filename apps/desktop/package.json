@@ -1,0 +1,33 @@
+{
+  "name": "@orion/desktop",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Orion Tauri desktop app",
+  "scripts": {
+    "build:sidecar": "node -e \"require('fs').mkdirSync('src-tauri/dist/sidecar', { recursive: true })\" && tsc -p tsconfig.sidecar.json",
+    "build:ui": "pnpm --filter @orion/desktop-ui build",
+    "dev": "pnpm build:sidecar && tauri dev",
+    "dev:clean": "cargo clean --manifest-path src-tauri/Cargo.toml && pnpm dev",
+    "build": "pnpm build:ui && pnpm build:sidecar && tauri build",
+    "sidecar:dev": "tsx sidecar/chat-sidecar.ts",
+    "lint": "eslint ui/src sidecar",
+    "typecheck": "tsc -p tsconfig.sidecar.json --noEmit && pnpm --filter @orion/desktop-ui typecheck",
+    "clean": "rm -rf src-tauri/dist src-tauri/target"
+  },
+  "dependencies": {
+    "@orion/agent": "workspace:*",
+    "@orion/chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^22.0.0",
+    "playwright": "^1.49.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
