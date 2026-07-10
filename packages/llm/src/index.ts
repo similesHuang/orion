@@ -12,6 +12,7 @@ import {
   ToolCall,
   ToolDefinition,
 } from '@orion/types';
+import { workspacePath } from '@orion/shared';
 import { envToSessionConfigs, loadEnv } from './env-config.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,7 +49,7 @@ function recordUsage(usage: Record<string, number>): void {
 }
 
 function writeLlmLog(label: string, content: string): void {
-  const logDir = path.join(process.cwd(), 'temp', 'model_responses');
+  const logDir = workspacePath('.orion', 'temp', 'model_responses');
   fs.mkdirSync(logDir, { recursive: true });
   const logPath = path.join(logDir, `model_responses_${process.pid}.txt`);
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);

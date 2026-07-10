@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { workspacePath } from '@orion/shared';
 import http from 'http';
 import https from 'https';
 
@@ -90,7 +91,7 @@ export function init(args: { mr_folder?: string }): void {
 export async function check(projectRoot: string): Promise<string | null> {
   checkTimes += 1;
   if (checkTimes > 1000) return '/exit';
-  if (!folder) folder = projectRoot;
+  if (!folder) folder = workspacePath('.orion', 'state');
   const data = loadState();
   if (!data || data.closed) return '/exit';
   const bbs = data.bbs as { url?: string } | undefined;

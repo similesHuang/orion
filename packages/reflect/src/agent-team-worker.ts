@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { workspacePath } from '@orion/shared';
 
 export const INTERVAL = 60;
 export const ONCE = false;
@@ -13,9 +14,9 @@ let lastId = -1;
 let lastDone = -1;
 let setting: Setting | null = null;
 
-function loadSetting(projectRoot: string): Setting | null {
+function loadSetting(_projectRoot: string): Setting | null {
   if (setting) return setting;
-  const cfgPath = path.join(projectRoot, 'reflect', 'agent_team_setting.json');
+  const cfgPath = workspacePath('.orion', 'state', 'agent_team_setting.json');
   if (!fs.existsSync(cfgPath)) return null;
   try {
     setting = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as Setting;

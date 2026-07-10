@@ -3,11 +3,14 @@ import path from 'path';
 import readline from 'readline';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { findProjectRoot } from '@orion/shared';
+import {
+  globalPath,
+  workspacePath,
+  getWorkspaceRoot,
+} from '@orion/shared';
 import { agentRunnerLoop } from './agent-loop.js';
 import {
   createClient,
-  loadSessions,
   loadSessionsFromEnv,
   NativeToolClient,
   ToolClient,
@@ -26,8 +29,6 @@ export * as costTracker from './cost-tracker.js';
 const __filename = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(__filename);
 
-const projectRoot = findProjectRoot(scriptDir);
-
 const GA_LANG = process.env.GA_LANG || (isZhLocale() ? 'zh' : 'en');
 process.env.GA_LANG = GA_LANG;
 
@@ -37,7 +38,7 @@ function isZhLocale(): boolean {
 }
 
 function loadToolSchema(suffix = '', bannedTools: string[] = []): Record<string, unknown>[] {
-  const p = path.join(projectRoot, 'assets', `tools_schema${suffix}.json`);
+  const p = globalPath('assets', `tools_schema${suffix}.json`);
   let text = fs.readFileSync(p, 'utf-8');
   if (process.platform !== 'win32') text = text.replace(/powershell/g, 'bash');
   const schema = JSON.parse(text) as Record<string, unknown>[];
@@ -49,16 +50,16 @@ function loadToolSchema(suffix = '', bannedTools: string[] = []): Record<string,
 }
 
 function ensureMemoryFiles(): void {
-  const memDir = path.join(projectRoot, 'memory');
+  const memDir = globalPath('memory');
   if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
-  const globalMem = path.join(memDir, 'global_mem.txt');
+  const globalMem = globalPath('memory', 'global_mem.txt');
   if (!fs.existsSync(globalMem)) {
     fs.writeFileSync(globalMem, '# [Global Memory - L2]\n', 'utf-8');
   }
-  const insight = path.join(memDir, 'global_mem_insight.txt');
+  const insight = globalPath('memory', 'global_mem_insight.txt');
   if (!fs.existsSync(insight)) {
     const suffix = GA_LANG === 'en' ? '_en' : '';
-    const tpl = path.join(projectRoot, 'assets', `global_mem_insight_template${suffix}.txt`);
+    const tpl = globalPath('assets', `global_mem_insight_template${suffix}.txt`);
     if (fs.existsSync(tpl)) {
       fs.writeFileSync(insight, fs.readFileSync(tpl, 'utf-8'), 'utf-8');
     } else {
@@ -71,11 +72,11 @@ function getGlobalMemory(): string {
   let prompt = '\n';
   try {
     const suffix = GA_LANG === 'en' ? '_en' : '';
-    const insight = fs.readFileSync(path.join(projectRoot, 'memory', 'global_mem_insight.txt'), 'utf-8');
-    const structure = fs.readFileSync(path.join(projectRoot, `assets/insight_fixed_structure${suffix}.txt`), 'utf-8');
-    const globalMem = fs.readFileSync(path.join(projectRoot, 'memory', 'global_mem.txt'), 'utf-8');
+    const insight = fs.readFileSync(globalPath('memory', 'global_mem_insight.txt'), 'utf-8');
+    const structure = fs.readFileSync(globalPath('assets', `insight_fixed_structure${suffix}.txt`), 'utf-8');
+    const globalMem = fs.readFileSync(globalPath('memory', 'global_mem.txt'), 'utf-8');
     const userName = readUserName();
-    prompt += `cwd = ${path.join(projectRoot, 'temp')} (./)\n`;
+    prompt += `cwd = ${getWorkspaceRoot()} (./)\n`;
     prompt += '\n[Memory] (../memory)\n';
     if (userName) prompt += `[Current User] 用户姓名：${userName}\n\n`;
     prompt += structure + '\n../memory/global_mem_insight.txt:\n';
@@ -90,7 +91,7 @@ function getGlobalMemory(): string {
 
 function readUserName(): string | undefined {
   try {
-    const text = fs.readFileSync(path.join(projectRoot, 'memory', 'global_mem.txt'), 'utf-8');
+    const text = fs.readFileSync(globalPath('memory', 'global_mem.txt'), 'utf-8');
     return text.match(/用户姓名[：:]\s*(.+)/)?.[1]?.trim();
   } catch {
     return undefined;
@@ -99,7 +100,7 @@ function readUserName(): string | undefined {
 
 function getSystemPrompt(): string {
   const suffix = GA_LANG === 'en' ? '_en' : '';
-  const p = path.join(projectRoot, 'assets', `sys_prompt${suffix}.txt`);
+  const p = globalPath('assets', `sys_prompt${suffix}.txt`);
   let prompt = fs.readFileSync(p, 'utf-8');
   const now = new Date();
   const weekdays = GA_LANG === 'en'
@@ -110,25 +111,11 @@ function getSystemPrompt(): string {
   return prompt;
 }
 
-function findConfigPath(): { kind: 'env'; path: string } | { kind: 'json'; path: string } | null {
-  const envPath = path.join(projectRoot, '.env');
-  if (fs.existsSync(envPath)) return { kind: 'env', path: envPath };
-  const jsonCandidates = [
-    path.join(projectRoot, 'mykey.json'),
-    path.join(projectRoot, 'mykey.template.json'),
-  ];
-  for (const p of jsonCandidates) {
-    if (fs.existsSync(p)) return { kind: 'json', path: p };
-  }
-  return null;
-}
-
 function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
-  const cfg = findConfigPath();
-  if (!cfg) throw new Error('No .env, mykey.json or mykey.template.json found.');
-  const sessions = cfg.kind === 'env'
-    ? loadSessionsFromEnv(cfg.path)
-    : loadSessions(cfg.path);
+  const sessions = loadSessionsFromEnv();
+  if (sessions.length === 0) {
+    throw new Error('No LLM sessions configured. Run `orion --migrate` or create ~/.orion/config/settings.yaml.');
+  }
   if (keepHistory && sessions.length) {
     sessions[0].history = keepHistory;
   }
@@ -159,8 +146,8 @@ export class GenericAgent {
   constructor() {
     this.sessions = loadSessionsFresh();
     this.client = createClient(this.sessions, this.llmNo);
-    if (!fs.existsSync(path.join(projectRoot, 'temp'))) {
-      fs.mkdirSync(path.join(projectRoot, 'temp'), { recursive: true });
+    if (!fs.existsSync(workspacePath('.orion', 'temp'))) {
+      fs.mkdirSync(workspacePath('.orion', 'temp'), { recursive: true });
     }
   }
 
@@ -202,7 +189,7 @@ export class GenericAgent {
     if (m) {
       const [, k, v] = m;
       let val: unknown = v;
-      const vfile = path.join(projectRoot, 'temp', v);
+      const vfile = workspacePath('.orion', 'temp', v);
       if (fs.existsSync(vfile)) val = fs.readFileSync(vfile, 'utf-8').trim();
       try {
         val = JSON.parse(val as string);
@@ -315,7 +302,7 @@ export class GenericAgent {
       taskDir: this.taskDir,
       verbose: this.verbose,
     };
-    const handler = new GenericAgentHandler(parent, this.history, path.join(projectRoot, 'temp'));
+    const handler = new GenericAgentHandler(parent, this.history, getWorkspaceRoot());
     if (this.handler?.working.key_info) {
       const ki = String(this.handler.working.key_info).replace(/\n\[SYSTEM\] 此为.*?工作记忆[。\n]*/g, '');
       const ps = (Number(this.handler.working.passed_sessions) || 0) + 1;
@@ -412,12 +399,13 @@ export async function main(): Promise<void> {
 
   if (flags.bg) {
     const taskName = flags.task || 'reflect_bg';
-    const logDir = path.join(projectRoot, 'temp', taskName);
+    const logDir = workspacePath('.orion', 'temp', taskName);
     fs.mkdirSync(logDir, { recursive: true });
     const childArgs = args.filter((a) => a !== '--bg');
+    const agentEntry = path.resolve(scriptDir, '..', 'dist', 'index.js');
     const child = spawn(
       process.execPath,
-      [path.resolve(projectRoot, 'dist', 'agent.js'), ...childArgs],
+      [agentEntry, ...childArgs],
       {
         detached: true,
         stdio: [
@@ -425,7 +413,7 @@ export async function main(): Promise<void> {
           fs.openSync(path.join(logDir, 'stdout.log'), 'w'),
           fs.openSync(path.join(logDir, 'stderr.log'), 'w'),
         ],
-        cwd: projectRoot,
+        cwd: getWorkspaceRoot(),
       }
     );
     child.unref();
@@ -489,12 +477,12 @@ export async function main(): Promise<void> {
         const interval = (typeof mod.INTERVAL === 'number' ? mod.INTERVAL : 5) * 1000;
         await sleep(interval);
         const checkFn = mod.check as (projectRoot: string) => unknown | Promise<unknown>;
-        const task = await Promise.resolve(checkFn(projectRoot));
+        const task = await Promise.resolve(checkFn(getWorkspaceRoot()));
         if (task == null) continue;
         console.log(`[Reflect] triggered: ${String(task).slice(0, 80)}`);
         const result = await agent.runOnce(String(task));
         console.log(result);
-        const logDir = path.join(projectRoot, 'temp', 'reflect_logs');
+        const logDir = workspacePath('.orion', 'temp', 'reflect_logs');
         fs.mkdirSync(logDir, { recursive: true });
         const scriptName = path.basename(reflectPath, path.extname(reflectPath));
         const logPath = path.join(logDir, `${scriptName}_${new Date().toISOString().slice(0, 10)}.log`);
@@ -521,7 +509,7 @@ export async function main(): Promise<void> {
 
   if (flags.task) {
     agent.peerHint = false;
-    const taskDir = path.join(projectRoot, 'temp', flags.task);
+    const taskDir = workspacePath('.orion', 'temp', flags.task);
     if (!fs.existsSync(taskDir)) fs.mkdirSync(taskDir, { recursive: true });
     agent.taskDir = taskDir;
     const infile = path.join(taskDir, 'input.txt');

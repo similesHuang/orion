@@ -1,9 +1,14 @@
 import { MAX_ATTACHMENTS, STORAGE_KEY } from './constants'
 import { cloneTimeline, createSession, sanitizeMessage, sessionPreview } from './utils'
-import type { BackendSnapshot, ChatSession, Role, UiMessage, UiState } from './types'
+import type { BackendSnapshot, ChatSession, Project, Role, UiMessage, UiState } from './types'
 
 export type ChatAction =
-  | { type: 'init'; sessions: ChatSession[]; activeSessionId: string | null }
+  | { type: 'init'; state: UiState }
+  | { type: 'setProjects'; projects: Project[]; activeProjectId: string | null }
+  | { type: 'addProject'; project: Project }
+  | { type: 'updateProject'; projectId: string; patch: Partial<Project> }
+  | { type: 'deleteProject'; projectId: string }
+  | { type: 'selectProject'; projectId: string | null }
   | { type: 'addMessage'; sessionId: string; role: Role; text: string; extras?: Partial<UiMessage> }
   | { type: 'updateMessage'; sessionId: string; id: string; patch: Partial<UiMessage> }
   | { type: 'setDraft'; sessionId: string; draft: string }
@@ -14,7 +19,7 @@ export type ChatAction =
   | { type: 'setBackendState'; sessionId: string; backendState: BackendSnapshot | null }
   | { type: 'touchSession'; sessionId: string }
   | { type: 'switchSession'; sessionId: string }
-  | { type: 'createSession'; title?: string }
+  | { type: 'createSession'; title?: string; projectId?: string }
   | { type: 'renameCurrent'; title: string }
   | { type: 'deleteCurrent' }
   | { type: 'resetCurrent' }
@@ -46,10 +51,44 @@ function touch(session: ChatSession): ChatSession {
 export function chatReducer(state: UiState, action: ChatAction): UiState {
   switch (action.type) {
     case 'init':
+      return action.state
+
+    case 'setProjects':
+      return { ...state, projects: action.projects, activeProjectId: action.activeProjectId }
+
+    case 'addProject':
       return {
-        sessions: action.sessions,
-        activeSessionId: action.activeSessionId,
+        ...state,
+        projects: [...state.projects, action.project],
+        activeProjectId: action.project.id,
       }
+
+    case 'updateProject':
+      return {
+        ...state,
+        projects: state.projects.map((project) =>
+          project.id === action.projectId
+            ? { ...project, ...action.patch, updatedAt: Date.now() }
+            : project
+        ),
+      }
+
+    case 'deleteProject': {
+      const remainingProjects = state.projects.filter((project) => project.id !== action.projectId)
+      const nextSessions = state.sessions.map((session) =>
+        session.projectId === action.projectId ? { ...session, projectId: null } : session
+      )
+      return {
+        ...state,
+        projects: remainingProjects,
+        sessions: nextSessions,
+        activeProjectId:
+          state.activeProjectId === action.projectId ? null : state.activeProjectId,
+      }
+    }
+
+    case 'selectProject':
+      return { ...state, activeProjectId: action.projectId }
 
     case 'addMessage': {
       const message: UiMessage = {
@@ -119,13 +158,22 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
     case 'touchSession':
       return mapSession(state, action.sessionId, touch)
 
-    case 'switchSession':
-      return { ...state, activeSessionId: action.sessionId }
+    case 'switchSession': {
+      const target = state.sessions.find((session) => session.id === action.sessionId)
+      return {
+        ...state,
+        activeSessionId: action.sessionId,
+        activeProjectId: target?.projectId ?? null,
+      }
+    }
 
     case 'createSession': {
-      const session = createSession(action.title ?? `新会话 ${state.sessions.length + 1}`)
+      const projectId = action.projectId ?? state.activeProjectId
+      const session = createSession(action.title ?? `新会话 ${state.sessions.length + 1}`, projectId)
       return {
+        ...state,
         sessions: [session, ...state.sessions],
+        activeProjectId: projectId,
         activeSessionId: session.id,
       }
     }
@@ -142,6 +190,7 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
       const remaining = state.sessions.filter((item) => item.id !== session.id)
       if (!remaining.length) remaining.push(createSession())
       return {
+        ...state,
         sessions: remaining,
         activeSessionId: remaining[0].id,
       }
@@ -175,25 +224,30 @@ export function loadState(): UiState {
       pendingFiles?: string[]
     }
 
-    if (Array.isArray(parsed.sessions) && parsed.sessions.length) {
+    if (Array.isArray(parsed.sessions)) {
+      const sessions: ChatSession[] = parsed.sessions.map((session) => ({
+        id: session.id || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: session.title || '未命名会话',
+        projectId: session.projectId ?? null,
+        messages: Array.isArray(session.messages)
+          ? session.messages.slice(-200).map(sanitizeMessage)
+          : [],
+        draft: typeof session.draft === 'string' ? session.draft : '',
+        pendingFiles: Array.isArray(session.pendingFiles)
+          ? session.pendingFiles.filter((item): item is string => typeof item === 'string')
+          : [],
+        updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : Date.now(),
+        backendState: session.backendState ?? null,
+      }))
       return {
-        sessions: parsed.sessions.map((session) => ({
-          id: session.id || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          title: session.title || '未命名会话',
-          messages: Array.isArray(session.messages)
-            ? session.messages.slice(-200).map(sanitizeMessage)
-            : [],
-          draft: typeof session.draft === 'string' ? session.draft : '',
-          pendingFiles: Array.isArray(session.pendingFiles)
-            ? session.pendingFiles.filter((item): item is string => typeof item === 'string')
-            : [],
-          updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : Date.now(),
-          backendState: session.backendState ?? null,
-        })),
+        version: 5,
+        projects: [],
+        sessions,
+        activeProjectId: null,
         activeSessionId:
           typeof parsed.activeSessionId === 'string'
             ? parsed.activeSessionId
-            : parsed.sessions[0]?.id ?? null,
+            : sessions[0]?.id ?? null,
       }
     }
 
@@ -204,18 +258,61 @@ export function loadState(): UiState {
       migrated.pendingFiles = Array.isArray(parsed.pendingFiles)
         ? parsed.pendingFiles.filter((item): item is string => typeof item === 'string')
         : []
-      return { sessions: [migrated], activeSessionId: migrated.id }
+      return {
+        version: 5,
+        projects: [],
+        sessions: [migrated],
+        activeProjectId: null,
+        activeSessionId: migrated.id,
+      }
     }
   } catch {
     // ignore and fall back
   }
 
   const initial = createSession()
-  return { sessions: [initial], activeSessionId: initial.id }
+  return {
+    version: 5,
+    projects: [],
+    sessions: [initial],
+    activeProjectId: null,
+    activeSessionId: initial.id,
+  }
+}
+
+export function extractLegacyProjects(): { projects: Project[]; activeProjectId: string | null } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return { projects: [], activeProjectId: null }
+    const parsed = JSON.parse(raw) as Partial<UiState>
+    const projects: Project[] = Array.isArray(parsed.projects)
+      ? parsed.projects.map((project) => ({
+          id: project.id || `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: project.name || '未命名项目',
+          path: project.path || '',
+          gitBranch: project.gitBranch ?? null,
+          createdAt: typeof project.createdAt === 'number' ? project.createdAt : Date.now(),
+          updatedAt: typeof project.updatedAt === 'number' ? project.updatedAt : Date.now(),
+        }))
+      : []
+    return {
+      projects,
+      activeProjectId: typeof parsed.activeProjectId === 'string' ? parsed.activeProjectId : null,
+    }
+  } catch {
+    return { projects: [], activeProjectId: null }
+  }
 }
 
 export function saveState(state: UiState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: state.version,
+      sessions: state.sessions,
+      activeSessionId: state.activeSessionId,
+    })
+  )
 }
 
 export function maybeUpdateSessionTitle(session: ChatSession, text: string): ChatSession {

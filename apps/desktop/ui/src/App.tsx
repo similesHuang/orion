@@ -18,6 +18,7 @@ import {
 } from './constants'
 import {
   chatReducer,
+  extractLegacyProjects,
   loadState,
   maybeUpdateSessionTitle,
   saveState,
@@ -40,14 +41,23 @@ import {
   minimizeWindow,
   toggleMaximizeWindow,
   closeWindow,
+  selectWorkspaceFolder,
+  getWorkspacePath,
+  setWorkspacePath,
+  setWorkspacePathState,
+  setWorkspacePathRuntime,
+  loadProjectsFromDisk,
+  saveProjectsToDisk,
+  getProjectInfo,
 } from './api'
 import { Markdown } from './markdown'
 import { Timeline } from './timeline'
-import { autoResizeTextarea, createSession, formatTime, formatUpdatedAt, parseListValue, parseSse } from './utils'
+import { autoResizeTextarea, basename, createSession, formatTime, formatUpdatedAt, parseListValue, parseSse, uid } from './utils'
 import type {
   DiagnosticsPayload,
   FieldSpec,
   LlmOption,
+  Project,
   SettingsState,
   UiMessage,
 } from './types'
@@ -63,8 +73,7 @@ function settingsReducer(
       saving: false,
       dirty: false,
       error: '',
-      env: {},
-      mykey: {},
+      settings: {},
       diagnostics: null,
     }
   }
@@ -78,8 +87,7 @@ const initialSettings: SettingsState = {
   saving: false,
   dirty: false,
   error: '',
-  env: {},
-  mykey: {},
+  settings: {},
   diagnostics: null,
 }
 
@@ -90,7 +98,7 @@ function FieldInput({
 }: {
   field: FieldSpec
   value: string
-  onChange: (scope: 'env' | 'mykey', key: string, value: string) => void
+  onChange: (key: string, value: string) => void
 }): ReactElement {
   return (
     <label className={`form-field ${field.multiline ? 'form-field-wide' : ''}`}>
@@ -98,23 +106,21 @@ function FieldInput({
       {field.multiline ? (
         <textarea
           className="settings-textarea"
-          data-scope={field.scope}
           data-key={field.key}
           data-format={field.multiline ? 'list' : undefined}
           placeholder={field.placeholder}
           value={value}
-          onChange={(event) => onChange(field.scope, field.key, event.target.value)}
+          onChange={(event) => onChange(field.key, event.target.value)}
           rows={3}
         />
       ) : (
         <input
           className="settings-input"
-          data-scope={field.scope}
           data-key={field.key}
           type={field.secret ? 'password' : 'text'}
           placeholder={field.placeholder}
           value={value}
-          onChange={(event) => onChange(field.scope, field.key, event.target.value)}
+          onChange={(event) => onChange(field.key, event.target.value)}
         />
       )}
       {field.hint && <small>{field.hint}</small>}
@@ -134,6 +140,7 @@ export function App(): ReactElement {
   const [llmOptions, setLlmOptions] = useState<LlmOption[]>([])
   const [selectedLlmLabel, setSelectedLlmLabel] = useState('模型未就绪')
   const [maximized, setMaximized] = useState(false)
+  const [workspacePathLabel, setWorkspacePathLabel] = useState<string | null>(null)
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
@@ -157,10 +164,24 @@ export function App(): ReactElement {
     return found ?? chatState.sessions[0] ?? createSession()
   }, [chatState])
 
-  const sessionsSorted = useMemo(
-    () => [...chatState.sessions].sort((left, right) => right.updatedAt - left.updatedAt),
-    [chatState.sessions]
-  )
+  const sessionsByProject = useMemo(() => {
+    const map = new Map<string, typeof chatState.sessions>()
+    const standalone: typeof chatState.sessions = []
+    for (const session of chatState.sessions) {
+      if (session.projectId) {
+        const list = map.get(session.projectId) ?? []
+        list.push(session)
+        map.set(session.projectId, list)
+      } else {
+        standalone.push(session)
+      }
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) => right.updatedAt - left.updatedAt)
+    }
+    standalone.sort((left, right) => right.updatedAt - left.updatedAt)
+    return { map, standalone }
+  }, [chatState.sessions])
 
   const closeStream = useCallback(() => {
     if (sseTimeoutRef.current !== null) {
@@ -253,8 +274,7 @@ export function App(): ReactElement {
       try {
         const payload = await fetchSettings()
         setSettings({
-          env: payload.env,
-          mykey: payload.mykey,
+          settings: payload.settings,
           diagnostics: payload.diagnostics,
           dirty: false,
           error: '',
@@ -267,6 +287,15 @@ export function App(): ReactElement {
     },
     [port, settings.loading]
   )
+
+  const loadWorkspacePath = useCallback(async () => {
+    try {
+      const path = await getWorkspacePath()
+      setWorkspacePathLabel(path)
+    } catch {
+      setWorkspacePathLabel(null)
+    }
+  }, [])
 
   const startSidecar = useCallback(
     async (forceRestart = false) => {
@@ -294,6 +323,7 @@ export function App(): ReactElement {
         const diagnostics = await pingSidecar()
         updateStatusFromDiagnostics(diagnostics)
         await loadSettings(true)
+        await loadWorkspacePath()
         if (diagnostics.agent.ready) {
           const options = await fetchModels()
           setLlmOptions(options)
@@ -312,7 +342,7 @@ export function App(): ReactElement {
         setAgentReady(false)
       }
     },
-    [chatState, closeStream, loadBackendForCurrentSession, loadSettings, persistActiveBackendState, ping, updateStatusFromDiagnostics]
+    [chatState, closeStream, loadBackendForCurrentSession, loadSettings, loadWorkspacePath, persistActiveBackendState, ping, updateStatusFromDiagnostics]
   )
 
   useEffect(() => {
@@ -346,6 +376,30 @@ export function App(): ReactElement {
   }, [chatState])
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const disk = await loadProjectsFromDisk()
+        const legacy = extractLegacyProjects()
+        const projects = disk.projects.length ? disk.projects : legacy.projects
+        const activeProjectId =
+          projects.length && projects.some((project) => project.id === disk.activeProjectId)
+            ? disk.activeProjectId
+            : legacy.activeProjectId
+        dispatch({ type: 'setProjects', projects, activeProjectId })
+        if (!disk.projects.length && projects.length) {
+          await saveProjectsToDisk(projects, activeProjectId)
+        }
+      } catch (error) {
+        console.error('Failed to load projects:', error)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    void saveProjectsToDisk(chatState.projects, chatState.activeProjectId)
+  }, [chatState.projects, chatState.activeProjectId])
+
+  useEffect(() => {
     if (textareaRef.current) autoResizeTextarea(textareaRef.current)
   }, [session?.draft])
 
@@ -356,15 +410,134 @@ export function App(): ReactElement {
         return
       }
       if (sessionId === activeSessionIdRef.current) return
+
+      const target = chatState.sessions.find((item) => item.id === sessionId)
+      if (!target) return
+
+      const targetProject = target.projectId
+        ? chatState.projects.find((project) => project.id === target.projectId)
+        : null
+      const targetPath = targetProject?.path ?? null
+
       await persistActiveBackendState()
       dispatch({ type: 'switchSession', sessionId })
-      const target = chatState.sessions.find((item) => item.id === sessionId)
-      if (target && port && sidecarReady && agentReady) {
+
+      if (targetPath && targetPath !== workspacePathLabel) {
+        try {
+          await setWorkspacePathState(targetPath)
+          setWorkspacePathLabel(targetPath)
+          if (port && sidecarReady) {
+            await setWorkspacePathRuntime(targetPath)
+          }
+        } catch (error) {
+          addSystemMessage(`切换工作目录失败: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+
+      if (port && sidecarReady && agentReady) {
         await importBackendSnapshot(target.backendState)
         await loadModelsAndPing()
       }
     },
-    [addSystemMessage, chatState.sessions, loadModelsAndPing, persistActiveBackendState, port, sidecarReady, agentReady]
+    [
+      addSystemMessage,
+      chatState.projects,
+      chatState.sessions,
+      loadModelsAndPing,
+      persistActiveBackendState,
+      port,
+      setWorkspacePathLabel,
+      sidecarReady,
+      agentReady,
+      workspacePathLabel,
+    ]
+  )
+
+  const handleSelectProject = useCallback(
+    async (projectId: string | null) => {
+      if (streamingRef.current) {
+        addSystemMessage('当前正在生成中，请先停止后再切换项目。')
+        return
+      }
+      if (projectId === chatState.activeProjectId) return
+      dispatch({ type: 'selectProject', projectId })
+      const targetSessions = chatState.sessions
+        .filter((item) => (projectId ? item.projectId === projectId : item.projectId === null))
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+      if (targetSessions.length) {
+        await handleSwitchSession(targetSessions[0].id)
+      }
+
+      if (projectId && port && sidecarReady) {
+        const project = chatState.projects.find((item) => item.id === projectId)
+        if (project) {
+          try {
+            const info = await getProjectInfo(project.path)
+            dispatch({
+              type: 'updateProject',
+              projectId,
+              patch: { gitBranch: info.branch },
+            })
+          } catch {
+            // ignore branch refresh errors
+          }
+        }
+      }
+    },
+    [addSystemMessage, chatState.activeProjectId, chatState.projects, chatState.sessions, handleSwitchSession, port, sidecarReady]
+  )
+
+  const handleCreateProject = useCallback(
+    async () => {
+      if (streamingRef.current) {
+        addSystemMessage('当前正在生成中，请先停止后再创建项目。')
+        return
+      }
+      try {
+        const selected = await selectWorkspaceFolder()
+        if (!selected) return
+        const project: Project = {
+          id: uid('project'),
+          name: basename(selected),
+          path: selected,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }
+        dispatch({ type: 'addProject', project })
+        dispatch({ type: 'createSession', projectId: project.id })
+
+        try {
+          await setWorkspacePathState(selected)
+          setWorkspacePathLabel(selected)
+          if (port && sidecarReady) {
+            await setWorkspacePathRuntime(selected)
+          }
+        } catch (error) {
+          addSystemMessage(`切换工作目录失败: ${error instanceof Error ? error.message : String(error)}`)
+        }
+
+        if (port && sidecarReady) {
+          try {
+            const info = await getProjectInfo(selected)
+            dispatch({
+              type: 'updateProject',
+              projectId: project.id,
+              patch: { gitBranch: info.branch },
+            })
+          } catch {
+            // ignore branch detection errors
+          }
+        }
+
+        if (port && sidecarReady && agentReady) {
+          await importBackendSnapshot(null)
+          await loadModelsAndPing()
+        }
+      } catch (error) {
+        addSystemMessage(`创建项目失败: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    },
+    [addSystemMessage, agentReady, importBackendSnapshot, loadModelsAndPing, port, setWorkspacePathLabel, sidecarReady]
   )
 
   const handleCreateSession = useCallback(async () => {
@@ -608,14 +781,28 @@ export function App(): ReactElement {
     [addSystemMessage, agentReady, port, session, ping]
   )
 
+  const handleOpenWorkspace = useCallback(async () => {
+    if (!port || streamingRef.current) return
+    try {
+      const selected = await selectWorkspaceFolder()
+      if (!selected) return
+      await persistActiveBackendState()
+      await setWorkspacePath(selected)
+      setWorkspacePathLabel(selected)
+      await startSidecar(true)
+      addSystemMessage(`工作目录已切换为: ${selected}`)
+    } catch (error) {
+      addSystemMessage(`切换工作目录失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [addSystemMessage, persistActiveBackendState, port, startSidecar])
+
   const handleSaveSettings = useCallback(async () => {
     if (!port || settings.saving) return
     setSettings({ saving: true, error: '' })
     try {
-      const payload = await postSettings(settings.env, settings.mykey)
+      const payload = await postSettings(settings.settings)
       setSettings({
-        env: payload.env,
-        mykey: payload.mykey,
+        settings: payload.settings,
         diagnostics: payload.diagnostics,
         dirty: false,
         error: '',
@@ -635,17 +822,17 @@ export function App(): ReactElement {
     } finally {
       setSettings({ saving: false })
     }
-  }, [addSystemMessage, port, settings.dirty, settings.env, settings.mykey, settings.saving, ping])
+  }, [addSystemMessage, port, settings.dirty, settings.settings, settings.saving, ping])
 
   const updateField = useCallback(
-    (scope: 'env' | 'mykey', key: string, value: string) => {
+    (key: string, value: string) => {
       const field = [...PRIMARY_MODEL_FIELDS, ...GATEWAY_SPECS.flatMap((spec) => spec.fields)].find(
-        (item) => item.scope === scope && item.key === key
+        (item) => item.key === key
       )
       const nextValue = field?.multiline ? parseListValue(value) : value
       setSettings((prev) => ({
         ...prev,
-        [scope]: { ...prev[scope], [key]: nextValue },
+        settings: { ...prev.settings, [key]: nextValue },
         dirty: true,
       }))
     },
@@ -654,23 +841,22 @@ export function App(): ReactElement {
 
   const getFieldValue = useCallback(
     (field: FieldSpec): string => {
-      const source = field.scope === 'env' ? settings.env : settings.mykey
-      const value = source[field.key]
+      const value = settings.settings[field.key]
       if (Array.isArray(value)) return value.map((item) => String(item)).join('\n')
       return value == null ? '' : String(value)
     },
-    [settings.env, settings.mykey]
+    [settings.settings]
   )
 
-  const renderExtraEnvKeys = useMemo(() => {
+  const renderExtraKeys = useMemo(() => {
     const primaryKeys = new Set([
       ...PRIMARY_MODEL_FIELDS.map((field) => field.key),
-      ...GATEWAY_SPECS.flatMap((spec) => spec.fields.filter((field) => field.scope === 'env').map((field) => field.key)),
+      ...GATEWAY_SPECS.flatMap((spec) => spec.fields.map((field) => field.key)),
     ])
-    return Object.keys(settings.env)
+    return Object.keys(settings.settings)
       .filter((key) => !primaryKeys.has(key))
       .sort()
-  }, [settings.env])
+  }, [settings.settings])
 
   const settingsStateLabel = useMemo(() => {
     if (settings.saving) return '保存中'
@@ -682,7 +868,7 @@ export function App(): ReactElement {
   }, [settings.dirty, settings.error, settings.loading, settings.saving, settings.diagnostics])
 
   const renderSettingsBody = () => {
-    if (settings.loading && !settings.diagnostics && !Object.keys(settings.env).length) {
+    if (settings.loading && !settings.diagnostics && !Object.keys(settings.settings).length) {
       return <div className="settings-loading">正在加载配置与诊断信息…</div>
     }
 
@@ -696,7 +882,7 @@ export function App(): ReactElement {
             <div>
               <h3>模型配置</h3>
               <p className="settings-copy">
-                对应项目根目录下的 <code>.env</code>。保存后 sidecar 会用当前会话快照重建 agent。
+                对应全局配置 <code>settings.yaml</code>。保存后 sidecar 会用当前会话快照重建 agent。
               </p>
             </div>
           </div>
@@ -712,20 +898,20 @@ export function App(): ReactElement {
           </div>
         </section>
 
-        {renderExtraEnvKeys.length > 0 && (
+        {renderExtraKeys.length > 0 && (
           <section className="settings-section">
             <div className="section-heading">
               <div>
-                <h3>其他环境变量</h3>
+                <h3>其他配置项</h3>
                 <p className="settings-copy">保留已存在但未放进主表单的附加字段，例如多模型或 tracing 配置。</p>
               </div>
             </div>
             <div className="form-grid">
-              {renderExtraEnvKeys.map((key) => (
+              {renderExtraKeys.map((key) => (
                 <FieldInput
                   key={key}
-                  field={{ scope: 'env', key, label: key }}
-                  value={String(settings.env[key] ?? '')}
+                  field={{ scope: 'settings', key, label: key }}
+                  value={String(settings.settings[key] ?? '')}
                   onChange={updateField}
                 />
               ))}
@@ -806,7 +992,61 @@ export function App(): ReactElement {
 
           <div className="sidebar-card sessions-card">
             <div className="card-header">
-              <span className="card-title">会话</span>
+              <span className="card-title">Projects</span>
+              <div className="header-actions">
+                <button className="icon-btn" title="添加 Project" onClick={() => void handleCreateProject()}>
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="session-list project-list">
+              {chatState.projects.length === 0 && (
+                <div className="empty-sidebar-hint">点击 + 添加一个目录作为 Project</div>
+              )}
+              {chatState.projects.map((project) => {
+                const isActive = project.id === chatState.activeProjectId
+                const projectSessions = sessionsByProject.map.get(project.id) ?? []
+                return (
+                  <div key={project.id} className="project-group">
+                    <button
+                      className={`session-item project-item ${isActive ? 'active' : ''}`}
+                      onClick={() => void handleSelectProject(project.id)}
+                    >
+                      <div className="session-title">
+                        {project.name}
+                        {project.gitBranch && (
+                          <span className="project-branch">{project.gitBranch}</span>
+                        )}
+                      </div>
+                      <div className="session-preview">{project.path}</div>
+                    </button>
+                    {isActive && (
+                      <div className="project-sessions">
+                        {projectSessions.length === 0 && (
+                          <div className="empty-sidebar-hint">该 Project 下暂无会话</div>
+                        )}
+                        {projectSessions.map((item) => (
+                          <button
+                            key={item.id}
+                            className={`session-item ${item.id === session?.id ? 'active' : ''}`}
+                            onClick={() => void handleSwitchSession(item.id)}
+                          >
+                            <div className="session-title">{item.title}</div>
+                            <div className="session-preview">{sessionPreview(item)}</div>
+                            <div className="session-time">{formatUpdatedAt(item.updatedAt)}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="sidebar-card sessions-card">
+            <div className="card-header">
+              <span className="card-title">Chats</span>
               <div className="header-actions">
                 <button className="icon-btn" title="新建会话" onClick={handleCreateSession}>+</button>
                 <button className="icon-btn" title="重命名" onClick={handleRenameSession}>✎</button>
@@ -814,7 +1054,10 @@ export function App(): ReactElement {
               </div>
             </div>
             <div className="session-list">
-              {sessionsSorted.map((item) => (
+              {sessionsByProject.standalone.length === 0 && (
+                <div className="empty-sidebar-hint">暂无独立会话</div>
+              )}
+              {sessionsByProject.standalone.map((item) => (
                 <button
                   key={item.id}
                   className={`session-item ${item.id === session?.id ? 'active' : ''}`}
@@ -833,6 +1076,15 @@ export function App(): ReactElement {
               <span className="action-icon">⚙</span>
               <span>设置</span>
             </button>
+            <button className="action-btn" onClick={() => void handleOpenWorkspace()} disabled={!port}>
+              <span className="action-icon">📁</span>
+              <span>{workspacePathLabel ? '切换工作目录' : '打开工作目录'}</span>
+            </button>
+            {workspacePathLabel && (
+              <div className="workspace-path-label" title={workspacePathLabel}>
+                {workspacePathLabel}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -945,6 +1197,27 @@ export function App(): ReactElement {
                 </svg>
               </button>
             </div>
+            <div className="composer-project">
+              <select
+                className="project-select"
+                value={chatState.activeProjectId ?? ''}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  if (value === '__add__') {
+                    void handleCreateProject()
+                  } else {
+                    void handleSelectProject(value || null)
+                  }
+                }}
+                disabled={streaming || !sidecarReady}
+              >
+                <option value="">独立 Chat</option>
+                {chatState.projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+                <option value="__add__">+ 添加 Project</option>
+              </select>
+            </div>
           </div>
           <div className="composer-hint">
             {!sidecarReady
@@ -964,7 +1237,7 @@ export function App(): ReactElement {
               <div className="eyebrow settings-eyebrow">Desktop Settings</div>
               <h2>模型配置、网关配置与运行诊断</h2>
               <p className="settings-copy">
-                直接在桌面端维护 <code>.env</code>、<code>mykey.json</code>，并查看 sidecar 当前诊断状态。
+                直接在桌面端维护全局 <code>settings.yaml</code>，并查看 sidecar 当前诊断状态。
               </p>
             </div>
             <div className="settings-actions">
@@ -983,7 +1256,7 @@ export function App(): ReactElement {
               {settings.error
                 ? `加载失败: ${settings.error}`
                 : settings.saving
-                  ? '正在写回 .env 与 mykey.json...'
+                  ? '正在写回 settings.yaml...'
                   : settings.dirty
                     ? '存在未保存更改。保存后会按当前会话快照重建 agent。'
                     : '保存后 sidecar 会按当前会话快照重建 agent。'}
@@ -1002,10 +1275,7 @@ export function App(): ReactElement {
 
 function renderDiagnostics(diagnostics: DiagnosticsPayload): ReactElement {
   const fileRows = [
-    ['.env', diagnostics.files.envExists ? diagnostics.files.envPath : `${diagnostics.files.envPath} (不存在)`],
-    ['.env.example', diagnostics.files.envExampleExists ? diagnostics.files.envExamplePath : `${diagnostics.files.envExamplePath} (不存在)`],
-    ['mykey.json', diagnostics.files.mykeyExists ? diagnostics.files.mykeyPath : `${diagnostics.files.mykeyPath} (不存在)`],
-    ['mykey.template.json', diagnostics.files.mykeyTemplateExists ? diagnostics.files.mykeyTemplatePath : `${diagnostics.files.mykeyTemplatePath} (不存在)`],
+    ['settings.yaml', diagnostics.files.settingsExists ? diagnostics.files.settingsPath : `${diagnostics.files.settingsPath} (不存在)`],
   ]
 
   return (
@@ -1034,7 +1304,8 @@ function renderDiagnostics(diagnostics: DiagnosticsPayload): ReactElement {
           <h4>路径</h4>
           <dl>
             <div><dt>工作目录</dt><dd>{diagnostics.cwd}</dd></div>
-            <div><dt>项目根目录</dt><dd>{diagnostics.projectRoot}</dd></div>
+            <div><dt>全局目录</dt><dd>{diagnostics.globalRoot}</dd></div>
+            <div><dt>工作区目录</dt><dd>{diagnostics.workspaceRoot}</dd></div>
             {fileRows.map(([label, value]) => (
               <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
             ))}

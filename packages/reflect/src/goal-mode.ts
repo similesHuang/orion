@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { workspacePath } from '@orion/shared';
 
 export const INTERVAL = 5;
 export const ONCE = false;
@@ -8,7 +9,7 @@ let stateFile = '';
 
 function resolveStateFile(projectRoot: string, explicit?: string): string {
   if (explicit) return path.isAbsolute(explicit) ? explicit : path.join(projectRoot, explicit);
-  return path.join(projectRoot, 'temp', 'goal_state.json');
+  return workspacePath('.orion', 'state', 'goal_state.json');
 }
 
 function loadState(): Record<string, unknown> | null {

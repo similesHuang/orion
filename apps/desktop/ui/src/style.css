@@ -269,12 +269,102 @@ body {
   color: var(--text-main);
 }
 
+.project-list {
+  max-height: none;
+}
+
+.project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-item {
+  padding: 10px 12px;
+}
+
+.project-item .session-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.project-branch {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(217, 93, 57, 0.18);
+  color: #ffaf8e;
+}
+
+.project-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  margin-left: 8px;
+}
+
+.empty-sidebar-hint {
+  padding: 10px 12px;
+  color: rgba(248, 241, 230, 0.45);
+  font-size: 12px;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
 .session-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   max-height: 240px;
   overflow: auto;
+}
+
+.project-list {
+  max-height: none;
+}
+
+.composer-project {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.project-select {
+  height: 30px;
+  padding: 0 26px 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(248, 241, 230, 0.72);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(248,241,230,0.62)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.project-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.project-select:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.project-select option {
+  background: var(--bg-panel-strong);
+  color: var(--text-main);
 }
 
 .session-item {

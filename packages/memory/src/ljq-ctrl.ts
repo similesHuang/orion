@@ -1,19 +1,19 @@
 import path from 'path';
 import fs from 'fs';
-import { findProjectRoot, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, runPythonArgsAsync } from '@orion/shared';
 
-const projectRoot = findProjectRoot(import.meta.url ? path.dirname(new URL(import.meta.url).pathname) : __dirname);
-const BRIDGE = path.join(projectRoot, 'GenericAgent', 'memory', 'ljqctrl_bg_bridge.py');
+// Python bridge script is not currently bundled; path is kept consistent with global assets.
+const BRIDGE = globalPath('assets', 'python', 'ljqctrl_bg_bridge.py');
 
 function findGenericRoot(): string {
   const candidates = [
-    path.resolve(projectRoot, '..', 'GenericAgent'),
-    path.resolve(projectRoot, '..', '..', 'GenericAgent'),
+    globalPath('assets', 'python'),
+    path.resolve(globalPath('assets'), '..', 'GenericAgent'),
   ];
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, 'memory', 'ljqCtrlBg.py'))) return dir;
+    if (fs.existsSync(path.join(dir, 'ljqCtrlBg.py'))) return dir;
   }
-  return path.resolve(projectRoot, '..', 'GenericAgent');
+  return globalPath('assets', 'python');
 }
 
 async function runPy(args: string[]): Promise<unknown> {

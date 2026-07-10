@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getWorkspaceRoot, globalPath } from '@orion/shared';
 
 const PROMPT_DIR = 'review_sop';
 const INLINE_PROMPT_ZH = 'review_inline_prompt.txt';
@@ -12,13 +13,13 @@ const STUB_FALLBACK =
   '不要写 review.md,不要打 [ROUND END]。';
 
 function projectRoot(): string {
-  return process.cwd();
+  return getWorkspaceRoot();
 }
 
 function renderPrompt(userRequest: string): string {
   const lang = (process.env.GA_LANG || '').trim().toLowerCase();
   const fname = lang === 'en' ? INLINE_PROMPT_EN : INLINE_PROMPT_ZH;
-  const fpath = path.join(projectRoot(), 'memory', PROMPT_DIR, fname);
+  const fpath = globalPath('memory', PROMPT_DIR, fname);
   const gaRoot = projectRoot().replace(/\\/g, '/');
   try {
     return fs.readFileSync(fpath, 'utf-8').replace(/\{user_request\}/g, userRequest).replace(/\{ga_root\}/g, gaRoot);

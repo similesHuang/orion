@@ -42,6 +42,10 @@ export function uid(prefix = 'session'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+export function basename(filePath: string): string {
+  return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -50,10 +54,11 @@ export function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;')
 }
 
-export function createSession(title = '新会话'): ChatSession {
+export function createSession(title = '新会话', projectId: string | null = null): ChatSession {
   return {
     id: uid(),
     title,
+    projectId,
     messages: [],
     draft: '',
     pendingFiles: [],

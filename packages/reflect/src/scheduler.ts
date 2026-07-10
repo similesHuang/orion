@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { workspacePath } from '@orion/shared';
 import { batchProcess } from '@orion/memory';
 
 export interface SchedulerTask {
@@ -56,7 +57,7 @@ export function check(projectRoot: string): string | null {
   if (Date.now() - lastL4Time > 12 * 60 * 60 * 1000) {
     lastL4Time = Date.now();
     try {
-      const rawDir = path.join(projectRoot, 'temp', 'model_responses');
+      const rawDir = workspacePath('.orion', 'temp', 'model_responses');
       const r = batchProcess(rawDir, null, false);
       console.log(`[L4 cron] ${JSON.stringify(r)}`);
     } catch (e) {
@@ -64,7 +65,7 @@ export function check(projectRoot: string): string | null {
     }
   }
 
-  const tasksDir = path.join(projectRoot, 'sche_tasks');
+  const tasksDir = workspacePath('.orion', 'sche_tasks');
   if (!fs.existsSync(tasksDir)) return null;
 
   const doneDir = path.join(tasksDir, 'done');

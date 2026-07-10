@@ -10,6 +10,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@orion/shared": "workspace:*",
     "@orion/types": "workspace:*",
     "ws": "^8.21.0"
   },
