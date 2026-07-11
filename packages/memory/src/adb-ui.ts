@@ -1,10 +1,10 @@
 /** Android UI dump + interaction wrapper (adb / uiautomator2 via Python fallback). */
 import { spawnSync } from 'child_process';
 import path from 'path';
-import { findProjectRoot, runPythonCodeAsync } from '@orion/shared';
+import { globalPath, runPythonCodeAsync } from '@orion/shared';
 
-const projectRoot = findProjectRoot(import.meta.url ? path.dirname(new URL(import.meta.url).pathname) : __dirname);
-const PY_SCRIPT = path.join(projectRoot, 'GenericAgent', 'memory', 'adb_ui.py');
+// Python fallback script is not currently bundled; path is kept consistent with global assets.
+const PY_SCRIPT = globalPath('assets', 'python', 'adb_ui.py');
 
 export interface UiNode {
   text: string;

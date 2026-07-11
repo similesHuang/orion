@@ -4,17 +4,13 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { fileURLToPath } from 'node:url'
-import { FILE_HINT, AgentChatMixin, costTracker, ensureSingleInstance, loadMykey } from '@orion/chat'
+import { execSync } from 'node:child_process'
+import { FILE_HINT, AgentChatMixin, costTracker, ensureSingleInstance } from '@orion/chat'
 import { GenericAgent, GenericAgentHandler } from '@orion/agent'
+import { initStorage, getGlobalRoot, getWorkspaceRoot, globalPath, loadSettings, saveSettings, applySettingsToEnv } from '@orion/shared'
 
-const __filename = fileURLToPath(import.meta.url)
 const MAX_FILE_SIZE = 1024 * 1024
-const PROJECT_ROOT = findProjectRoot(path.dirname(__filename))
-const ENV_PATH = path.join(PROJECT_ROOT, '.env')
-const ENV_EXAMPLE_PATH = path.join(PROJECT_ROOT, '.env.example')
-const MYKEY_PATH = path.join(PROJECT_ROOT, 'mykey.json')
-const MYKEY_TEMPLATE_PATH = path.join(PROJECT_ROOT, 'mykey.template.json')
+const SETTINGS_PATH = () => globalPath('config', 'settings.yaml')
 
 type Dict<T> = Record<string, T>
 type TimelineStepStatus = 'running' | 'done' | 'error'
@@ -72,7 +68,9 @@ interface DiagnosticsPayload {
   pid: number
   nodeVersion: string
   cwd: string
-  projectRoot: string
+  globalRoot: string
+  workspaceRoot: string
+  settingsPath: string
   sidecarPort: number
   activeRequests: number
   agent: {
@@ -83,21 +81,14 @@ interface DiagnosticsPayload {
     llms: string[]
   }
   files: {
-    envPath: string
-    envExists: boolean
-    envExamplePath: string
-    envExampleExists: boolean
-    mykeyPath: string
-    mykeyExists: boolean
-    mykeyTemplatePath: string
-    mykeyTemplateExists: boolean
+    settingsPath: string
+    settingsExists: boolean
   }
   gateways: GatewayDiagnostic[]
 }
 
 interface SettingsPayload {
-  env: Dict<string>
-  mykey: Dict<unknown>
+  settings: Record<string, unknown>
   diagnostics: DiagnosticsPayload
 }
 
@@ -133,54 +124,9 @@ const GATEWAY_SPECS: Array<{
   { id: 'discord', label: 'Discord', portKey: null, requiredKeys: ['discord_bot_token'], allowedKey: 'discord_allowed_users' },
 ]
 
-const KNOWN_ENV_ORDER = [
-  'GA_LANG',
-  'LLM_TYPE',
-  'LLM_NAME',
-  'LLM_APIKEY',
-  'LLM_APIBASE',
-  'LLM_MODEL',
-  'LLM_MAX_RETRIES',
-  'LLM_CONNECT_TIMEOUT',
-  'LLM_READ_TIMEOUT',
-  'LLM_CONTEXT_WIN',
-  'LLM_PROXY',
-  'LLM_VERIFY',
-  'LLM_STREAM',
-  'LLM_TIMEOUT',
-  'LLM_TEMPERATURE',
-  'LLM_MAX_TOKENS',
-  'LLM_API_MODE',
-  'LLM_REASONING_EFFORT',
-  'LLM_THINKING_TYPE',
-  'LLM_THINKING_BUDGET_TOKENS',
-  'LLM_FAKE_CC_SYSTEM_PROMPT',
-  'LLM_USER_AGENT',
-  'FEISHU_PORT',
-  'WECOM_PORT',
-  'WECHAT_PORT',
-  'QQ_PORT',
-  'DINGTALK_PORT',
-]
-
 let agent: GenericAgent | null = null
 let agentIssue: string | null = null
 let activeTimeline: TimelineRuntime | null = null
-
-function findProjectRoot(startDir: string): string {
-  let dir = path.resolve(startDir)
-  const seen = new Set<string>()
-  while (!seen.has(dir)) {
-    seen.add(dir)
-    if (['assets', 'memory', 'package.json'].every((marker) => fs.existsSync(path.join(dir, marker)))) {
-      return dir
-    }
-    const parent = path.dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  return process.cwd()
-}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -299,72 +245,16 @@ function getAgent(): GenericAgent {
   return agent
 }
 
-function parseEnvText(text: string): Dict<string> {
-  const result: Dict<string> = {}
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const match = line.match(/^(export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
-    if (!match) continue
-    const key = match[2]
-    let value = match[3].trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    result[key] = value
+function readSettingsConfig(): Record<string, unknown> {
+  try {
+    return loadSettings()
+  } catch {
+    return {}
   }
-  return result
 }
 
-function readEnvConfig(): Dict<string> {
-  if (fs.existsSync(ENV_PATH)) return parseEnvText(fs.readFileSync(ENV_PATH, 'utf-8'))
-  if (fs.existsSync(ENV_EXAMPLE_PATH)) return parseEnvText(fs.readFileSync(ENV_EXAMPLE_PATH, 'utf-8'))
-  return {}
-}
-
-function readMykeyConfig(): Dict<unknown> {
-  for (const filePath of [MYKEY_PATH, MYKEY_TEMPLATE_PATH]) {
-    if (!fs.existsSync(filePath)) continue
-    try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Dict<unknown>
-    } catch {
-      return {}
-    }
-  }
-  return {}
-}
-
-function serializeEnvValue(value: string): string {
-  if (value === '') return ''
-  if (/[\s#"'`]/.test(value)) return JSON.stringify(value)
-  return value
-}
-
-function serializeEnvConfig(env: Dict<string>): string {
-  const entries = Object.entries(env).filter(([, value]) => value !== undefined)
-  const order = new Map(KNOWN_ENV_ORDER.map((key, idx) => [key, idx]))
-  entries.sort(([left], [right]) => {
-    const leftOrder = order.has(left) ? order.get(left)! : Number.MAX_SAFE_INTEGER
-    const rightOrder = order.has(right) ? order.get(right)! : Number.MAX_SAFE_INTEGER
-    return leftOrder === rightOrder ? left.localeCompare(right) : leftOrder - rightOrder
-  })
-
-  const lines = [
-    '# Orion desktop configuration',
-    '# Managed by the desktop settings panel.',
-    '',
-    ...entries.map(([key, value]) => `${key}=${serializeEnvValue(String(value))}`),
-    '',
-  ]
-  return lines.join('\n')
-}
-
-function writeEnvConfig(env: Dict<string>): void {
-  fs.writeFileSync(ENV_PATH, serializeEnvConfig(env), 'utf-8')
-}
-
-function writeMykeyConfig(mykey: Dict<unknown>): void {
-  fs.writeFileSync(MYKEY_PATH, `${JSON.stringify(mykey, null, 2)}\n`, 'utf-8')
+function writeSettingsConfig(settings: Record<string, unknown>): void {
+  saveSettings(settings)
 }
 
 function toAllowedList(value: unknown): string[] {
@@ -378,15 +268,15 @@ function toAllowedList(value: unknown): string[] {
   return []
 }
 
-function buildGatewayDiagnostics(env: Dict<string>, mykey: Dict<unknown>): GatewayDiagnostic[] {
+function buildGatewayDiagnostics(settings: Record<string, unknown>): GatewayDiagnostic[] {
   return GATEWAY_SPECS.map((spec) => {
-    const requiredMissing = spec.requiredKeys.filter((key) => !present(mykey[key]))
-    const allowedUsers = spec.allowedKey ? toAllowedList(mykey[spec.allowedKey]) : []
+    const requiredMissing = spec.requiredKeys.filter((key) => !present(settings[key]))
+    const allowedUsers = spec.allowedKey ? toAllowedList(settings[spec.allowedKey]) : []
     return {
       id: spec.id,
       label: spec.label,
       portKey: spec.portKey,
-      portValue: spec.portKey ? String(env[spec.portKey] || '') : null,
+      portValue: spec.portKey ? String(settings[spec.portKey] || '') : null,
       configured: requiredMissing.length === 0,
       requiredMissing,
       allowedUsers,
@@ -403,15 +293,30 @@ function safeListLlms(current: GenericAgent | null): string[] {
   }
 }
 
+function getGitBranch(dir: string): string | null {
+  try {
+    const branch = execSync('git branch --show-current', {
+      cwd: dir,
+      encoding: 'utf-8',
+      timeout: 5000,
+    }).trim()
+    return branch || null
+  } catch {
+    return null
+  }
+}
+
 function buildDiagnostics(activeRequests: number): DiagnosticsPayload {
-  const env = readEnvConfig()
-  const mykey = readMykeyConfig()
+  const settings = readSettingsConfig()
+  const settingsPath = SETTINGS_PATH()
   const current = agent
   return {
     pid: process.pid,
     nodeVersion: process.version,
     cwd: process.cwd(),
-    projectRoot: PROJECT_ROOT,
+    globalRoot: getGlobalRoot(),
+    workspaceRoot: getWorkspaceRoot(),
+    settingsPath,
     sidecarPort: Number(process.env.WEB_PORT || 8502),
     activeRequests,
     agent: {
@@ -422,32 +327,26 @@ function buildDiagnostics(activeRequests: number): DiagnosticsPayload {
       llms: safeListLlms(current),
     },
     files: {
-      envPath: ENV_PATH,
-      envExists: fs.existsSync(ENV_PATH),
-      envExamplePath: ENV_EXAMPLE_PATH,
-      envExampleExists: fs.existsSync(ENV_EXAMPLE_PATH),
-      mykeyPath: MYKEY_PATH,
-      mykeyExists: fs.existsSync(MYKEY_PATH),
-      mykeyTemplatePath: MYKEY_TEMPLATE_PATH,
-      mykeyTemplateExists: fs.existsSync(MYKEY_TEMPLATE_PATH),
+      settingsPath,
+      settingsExists: fs.existsSync(settingsPath),
     },
-    gateways: buildGatewayDiagnostics(env, mykey),
+    gateways: buildGatewayDiagnostics(settings),
   }
 }
 
 function buildSettingsPayload(activeRequests: number): SettingsPayload {
   return {
-    env: readEnvConfig(),
-    mykey: readMykeyConfig(),
+    settings: readSettingsConfig(),
     diagnostics: buildDiagnostics(activeRequests),
   }
 }
 
 function readAttachment(filePath: string): string {
   try {
-    const resolved = path.resolve(PROJECT_ROOT, filePath)
-    // Restrict attachments to files inside the project root to prevent LFI.
-    if (!resolved.startsWith(PROJECT_ROOT + path.sep)) {
+    const workspaceRoot = getWorkspaceRoot()
+    const resolved = path.resolve(workspaceRoot, filePath)
+    // Restrict attachments to files inside the workspace root to prevent LFI.
+    if (!resolved.startsWith(workspaceRoot + path.sep)) {
       return `\n[附件路径超出允许范围: ${filePath}]\n`
     }
     if (!fs.existsSync(resolved)) return `\n[附件不存在: ${filePath}]\n`
@@ -635,16 +534,14 @@ function corsHeaders(origin: string | undefined): http.OutgoingHttpHeaders {
 }
 
 async function main(): Promise<void> {
+  initStorage({ workspaceRoot: process.env.ORION_WORKSPACE_DIR })
+  applySettingsToEnv()
+
   if (process.env.TAURI_SIDECHAT !== '1') {
     ensureSingleInstance(19536, 'Desktop')
   }
   costTracker.install()
   patchTimelineHooks()
-
-  const keys = loadMykey(__filename)
-  if (present(keys.claude_kimi_config)) {
-    // Keep parity with the legacy startup expectation when this optional key exists.
-  }
 
   rebuildAgent()
 
@@ -680,14 +577,13 @@ async function main(): Promise<void> {
     if (url.pathname === '/api/settings' && req.method === 'POST') {
       void (async () => {
         try {
-          const payload = (await readJsonBody(req)) as { env?: Dict<string>; mykey?: Dict<unknown> } | null
-          const env = payload?.env && typeof payload.env === 'object' ? payload.env : {}
-          const mykey = payload?.mykey && typeof payload.mykey === 'object' ? payload.mykey : {}
+          const payload = (await readJsonBody(req)) as { settings?: Record<string, unknown> } | null
+          const settings = payload?.settings && typeof payload.settings === 'object' ? payload.settings : {}
           const snapshot = exportSnapshot(agent)
 
           stopActiveTasks(activeRequests)
-          writeEnvConfig(Object.fromEntries(Object.entries(env).map(([key, value]) => [key, String(value ?? '')])))
-          writeMykeyConfig(mykey)
+          writeSettingsConfig(settings)
+          applySettingsToEnv(settings)
           rebuildAgent(snapshot)
 
           json(res, 200, buildSettingsPayload(activeRequests.size), cors)
@@ -700,6 +596,41 @@ async function main(): Promise<void> {
           )
         }
       })()
+      return
+    }
+
+    if (url.pathname === '/api/workspace' && req.method === 'POST') {
+      void (async () => {
+        try {
+          const payload = (await readJsonBody(req)) as { path?: string } | null
+          const workspacePath = payload?.path
+          if (!workspacePath || typeof workspacePath !== 'string') {
+            json(res, 400, { error: 'path is required' }, cors)
+            return
+          }
+          if (!fs.existsSync(workspacePath)) {
+            json(res, 400, { error: `path does not exist: ${workspacePath}` }, cors)
+            return
+          }
+          const stat = fs.statSync(workspacePath)
+          if (!stat.isDirectory()) {
+            json(res, 400, { error: `path is not a directory: ${workspacePath}` }, cors)
+            return
+          }
+          initStorage({ workspaceRoot: workspacePath })
+          process.chdir(workspacePath)
+          json(res, 200, { ok: true, diagnostics: buildDiagnostics(activeRequests.size) }, cors)
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
+        }
+      })()
+      return
+    }
+
+    if (url.pathname === '/api/project-info' && req.method === 'GET') {
+      const projectPath = url.searchParams.get('path') || ''
+      const branch = projectPath ? getGitBranch(projectPath) : null
+      json(res, 200, { path: projectPath, isGit: branch !== null, branch }, cors)
       return
     }
 

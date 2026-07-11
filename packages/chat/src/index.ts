@@ -16,6 +16,7 @@ import {
 } from './history-utils.js';
 export { costTracker } from '@orion/agent';
 export { handleBtwAsync, handleReviewFrontend };
+import { getWorkspaceRoot, workspacePath } from '@orion/shared';
 export { loadMykey, projectRootFrom } from '@orion/shared';
 export { createWebhookServer } from './gateway-utils.js';
 
@@ -94,8 +95,8 @@ export interface SessionInfo {
 }
 
 const RESTORE_GLOBS = [
-  path.join(process.cwd(), 'temp', 'model_responses', 'model_responses_*.txt'),
-  path.join(process.cwd(), 'temp', 'model_responses_*.txt'),
+  workspacePath('.orion', 'temp', 'model_responses', 'model_responses_*.txt'),
+  workspacePath('.orion', 'temp', 'model_responses_*.txt'),
 ];
 
 function restoreNativeHistory(content: string): string[] {
@@ -229,7 +230,7 @@ export function requireRuntime(agent: GenericAgentLike, label: string, required:
 }
 
 export function redirectLog(scriptFile: string, logName: string, label: string, allowed: Set<string>): void {
-  const logDir = path.join(path.dirname(path.dirname(path.resolve(scriptFile))), 'temp');
+  const logDir = workspacePath('.orion', 'temp');
   fs.mkdirSync(logDir, { recursive: true });
   const logPath = path.join(logDir, logName);
   const logf = fs.createWriteStream(logPath, { flags: 'a', encoding: 'utf-8' });

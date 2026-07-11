@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getWorkspaceRoot } from '@orion/shared';
 import { llmUsageHooks } from '@orion/llm';
 
 export interface TokenStats {
@@ -102,8 +103,8 @@ export function recordUsage(usage: Record<string, number>, threadName: string): 
 export function scanSubagentLogs(since = 0, root?: string): TokenStats {
   const out = emptyStats(since > 0 ? since : Date.now());
   // Simple glob: list temp dirs and check stdout.log
-  const base = root || process.cwd();
-  const tempDir = path.join(base, 'temp');
+  const base = root || getWorkspaceRoot();
+  const tempDir = path.join(base, '.orion', 'temp');
   if (!fs.existsSync(tempDir)) return out;
   for (const entry of fs.readdirSync(tempDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;

@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { LLMResponse } from '@orion/types';
+import { getWorkspaceRoot, globalPath } from '@orion/shared';
 
 export function smartFormat(data: unknown, maxStrLen = 100, omitStr = ' ... '): string {
   const s = typeof data === 'string' ? data : String(data);
@@ -22,7 +23,7 @@ export function formatError(e: unknown): string {
 
 export function logMemoryAccess(filePath: string): void {
   if (!filePath.includes('memory')) return;
-  const statsFile = path.join(getProjectRoot(), 'memory', 'file_access_stats.json');
+  const statsFile = globalPath('memory', 'file_access_stats.json');
   let stats: Record<string, { count: number; last: string }> = {};
   try {
     stats = JSON.parse(fs.readFileSync(statsFile, 'utf-8'));
@@ -40,7 +41,7 @@ export function logMemoryAccess(filePath: string): void {
 }
 
 export function getProjectRoot(): string {
-  return path.resolve(process.cwd());
+  return getWorkspaceRoot();
 }
 
 export function expandFileRefs(text: string, baseDir?: string): string {
@@ -71,10 +72,10 @@ export async function* codeRun(
 
   let tmpPath: string | null = null;
   let cmd: string[];
-  const actualCwd = cwd || path.join(getProjectRoot(), 'temp');
+  const actualCwd = cwd || getWorkspaceRoot();
 
   if (codeType === 'python' || codeType === 'py') {
-    const headerPath = path.join(getProjectRoot(), 'assets', 'code_run_header.py');
+    const headerPath = globalPath('assets', 'code_run_header.py');
     let header = '';
     if (fs.existsSync(headerPath)) header = fs.readFileSync(headerPath, 'utf-8');
     const dir = codeCwd || actualCwd;
@@ -349,9 +350,9 @@ export function getGlobalMemory(): string {
   let prompt = '\n';
   try {
     const suffix = process.env.GA_LANG === 'en' ? '_en' : '';
-    const insight = fs.readFileSync(path.join(getProjectRoot(), 'memory', 'global_mem_insight.txt'), 'utf-8');
-    const structure = fs.readFileSync(path.join(getProjectRoot(), `assets/insight_fixed_structure${suffix}.txt`), 'utf-8');
-    prompt += `cwd = ${path.join(getProjectRoot(), 'temp')} (./)\n`;
+    const insight = fs.readFileSync(globalPath('memory', 'global_mem_insight.txt'), 'utf-8');
+    const structure = fs.readFileSync(globalPath('assets', `insight_fixed_structure${suffix}.txt`), 'utf-8');
+    prompt += `cwd = ${getWorkspaceRoot()} (./)\n`;
     prompt += '\n[Memory] (../memory)\n';
     prompt += structure + '\n../memory/global_mem_insight.txt:\n';
     prompt += insight + '\n';

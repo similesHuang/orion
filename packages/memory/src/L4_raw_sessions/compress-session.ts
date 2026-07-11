@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-
-const moduleDir = path.dirname(import.meta.url ? fileURLToPath(import.meta.url) : __filename);
-export const L4_DIR = path.resolve(moduleDir, '..', '..', '..', 'memory', 'L4_raw_sessions');
-
 import { fileURLToPath } from 'url';
+import { globalPath, workspacePath } from '@orion/shared';
+
+export const L4_DIR = globalPath('memory', 'L4_raw_sessions');
+const RAW_SESSIONS_DIR = workspacePath('.orion', 'temp', 'model_responses');
 
 const rePrompt = /^=== Prompt ===(?: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?/gm;
 const reResponse = /^=== Response ===(?: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?/gm;

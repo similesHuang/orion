@@ -43,9 +43,19 @@ export interface BackendSnapshot {
   sessionHistories: unknown[][]
 }
 
+export interface Project {
+  id: string
+  name: string
+  path: string
+  gitBranch?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 export interface ChatSession {
   id: string
   title: string
+  projectId: string | null
   messages: UiMessage[]
   draft: string
   pendingFiles: string[]
@@ -54,7 +64,10 @@ export interface ChatSession {
 }
 
 export interface UiState {
+  version: number
+  projects: Project[]
   sessions: ChatSession[]
+  activeProjectId: string | null
   activeSessionId: string | null
 }
 
@@ -72,7 +85,9 @@ export interface DiagnosticsPayload {
   pid: number
   nodeVersion: string
   cwd: string
-  projectRoot: string
+  globalRoot: string
+  workspaceRoot: string
+  settingsPath: string
   sidecarPort: number
   activeRequests: number
   agent: {
@@ -83,21 +98,14 @@ export interface DiagnosticsPayload {
     llms: string[]
   }
   files: {
-    envPath: string
-    envExists: boolean
-    envExamplePath: string
-    envExampleExists: boolean
-    mykeyPath: string
-    mykeyExists: boolean
-    mykeyTemplatePath: string
-    mykeyTemplateExists: boolean
+    settingsPath: string
+    settingsExists: boolean
   }
   gateways: GatewayDiagnostic[]
 }
 
 export interface SettingsPayload {
-  env: Record<string, string>
-  mykey: Record<string, unknown>
+  settings: Record<string, unknown>
   diagnostics: DiagnosticsPayload
 }
 
@@ -107,13 +115,12 @@ export interface SettingsState {
   saving: boolean
   dirty: boolean
   error: string
-  env: Record<string, string>
-  mykey: Record<string, unknown>
+  settings: Record<string, unknown>
   diagnostics: DiagnosticsPayload | null
 }
 
 export interface FieldSpec {
-  scope: 'env' | 'mykey'
+  scope: 'settings'
   key: string
   label: string
   placeholder?: string

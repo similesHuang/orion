@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { LLMResponse } from '@orion/types';
+import { globalPath } from '@orion/shared';
 import {
   codeRun,
   consumeFile,
@@ -237,7 +238,7 @@ export class GenericAgentHandler extends BaseHandler {
       `**操作**：严格遵循提供的L0的记忆更新SOP。先 \`file_read\` 看现有 → 判断类型 → 最小化更新 → 无新内容跳过，保证对记忆库最小局部修改。\n\n` +
       getGlobalMemory();
     yield '[Info] Start distilling good memory for long-term storage.\n';
-    const sopPath = './memory/memory_management_sop.md';
+    const sopPath = globalPath('memory', 'memory_management_sop.md');
     const result = fs.existsSync(sopPath)
       ? 'This is L0:\n' + fileRead(path.resolve(sopPath), 1, undefined, 200, false)
       : 'Memory Management SOP not found. Do not update memory.';
