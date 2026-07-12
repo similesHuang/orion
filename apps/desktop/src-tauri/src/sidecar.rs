@@ -154,13 +154,21 @@ pub async fn start_chat_sidecar(
         .map(Path::to_path_buf)
         .ok_or_else(|| "invalid sidecar script path".to_string())?;
 
-    let (mut rx, child) = app
+    let workspace_path = {
+        let guard = state.workspace_path.lock().map_err(|e| e.to_string())?;
+        guard.clone().unwrap_or_else(|| root.to_string_lossy().to_string())
+    };
+
+    let mut cmd = app
         .shell()
         .command("node")
         .args([script.to_string_lossy().to_string()])
         .current_dir(&root)
         .env("WEB_PORT", port.to_string())
-        .env("TAURI_SIDECHAT", "1")
+        .env("TAURI_SIDECHAT", "1");
+    cmd = cmd.env("ORION_WORKSPACE_DIR", workspace_path);
+
+    let (mut rx, child) = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn sidecar: {e}"))?;
 

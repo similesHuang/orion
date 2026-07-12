@@ -1,13 +1,12 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { workspacePath } from '@orion/shared';
 
-const moduleDir = path.dirname(import.meta.url ? fileURLToPath(import.meta.url) : __filename);
-const tempDir = path.resolve(moduleDir, '..', '..', '..', 'temp');
+const tempDir = workspacePath('.orion', 'temp');
 const reportsDir = path.join(tempDir, 'autonomous_reports');
 const historyFile = path.join(reportsDir, 'history.txt');
 const todoFile = path.join(tempDir, 'TODO.txt');
-
-import { fileURLToPath } from 'url';
 
 function nextReportNumber(): number {
   if (!fs.existsSync(historyFile)) return 1;

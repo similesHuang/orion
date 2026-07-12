@@ -227,6 +227,65 @@ pnpm lint
 
 ---
 
+## 桌面端：Project 与 Chat
+
+桌面端（`apps/desktop`）采用 **Project = 目录** 的组织方式。一个 Project 对应一个本地目录（通常是代码仓库），每个 Chat 会话可以绑定到一个 Project，也可以是独立 Chat。
+
+### 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| **Project** | 一个本地目录。选择 Project 后，所有工具调用（文件读写、命令执行等）默认在该目录下进行。 |
+| **Chat** | 一次对话。Chat 创建时决定属于哪个 Project，之后不可更改。 |
+| **独立 Chat** | 不绑定任何 Project 的会话。 |
+
+### 界面结构
+
+左侧边栏分为两级：
+
+```
+Projects
+  ├─ orion                main
+  │    ├─ fix login bug
+  │    └─ refactor api
+  ├─ agent-messenger      feat/auth
+  │    └─ ...
+Chats
+  ├─ 独立会话 1
+  └─ 独立会话 2
+```
+
+- 点击 **Project**：展开/折叠该 Project 下的 Chat 列表，并切换到其工作目录。
+- 点击 **Chat**：切换到对应会话。
+- 选择 Project 下的 Chat 时，会自动将工作目录切换到该 Project 的路径。
+
+### Composer 选择器
+
+输入框下方的 **Work in a project** 下拉框用于快速切换当前上下文：
+
+- **独立 Chat**：切换到独立 Chat 区域。
+- 已添加的 Project：切换到该 Project 下最近的 Chat。
+- **+ 添加 Project**：打开目录选择器，将新目录添加为 Project。
+
+### Git 分支显示
+
+如果 Project 目录是 git 仓库，Project 名称右侧会显示当前分支名。分支在选择 Project 或创建 Project 时自动检测。
+
+### 数据存储
+
+| 数据 | 存储位置 |
+|------|----------|
+| Project 列表 + activeProjectId | 应用数据目录下的 `projects.json` |
+| Chat 会话 + activeSessionId | 浏览器 `localStorage`（`orion-desktop-ui-state-v5`） |
+
+应用数据目录：
+
+- **macOS**：`~/Library/Application Support/orion`
+- **Windows**：`%LOCALAPPDATA%\orion`
+- **Linux**：`$XDG_DATA_HOME/orion` 或 `~/.orion`
+
+---
+
 ## 关键入口
 
 | 入口 | 文件 | 说明 |

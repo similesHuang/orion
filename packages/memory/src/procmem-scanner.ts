@@ -4,10 +4,10 @@
  *  only delegates to the Python script on Windows when available.
  */
 import path from 'path';
-import { findProjectRoot, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, runPythonArgsAsync } from '@orion/shared';
 
-const projectRoot = findProjectRoot(import.meta.url ? path.dirname(new URL(import.meta.url).pathname) : __dirname);
-const PY_SCRIPT = path.join(projectRoot, 'GenericAgent', 'memory', 'procmem_scanner.py');
+// Python fallback script is not currently bundled; path is kept consistent with global assets.
+const PY_SCRIPT = globalPath('assets', 'python', 'procmem_scanner.py');
 
 export interface MemoryHit {
   address: string;

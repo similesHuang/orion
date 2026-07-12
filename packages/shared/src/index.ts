@@ -2,6 +2,21 @@ import fs from 'fs';
 import path from 'path';
 
 export * from './run-python.js';
+export {
+  ensureStorageDirs,
+  getAssetSeedDir,
+  getGlobalRoot,
+  getStorage,
+  getWorkspaceRoot,
+  globalPath,
+  initStorage,
+  isGlobalInitialized,
+  markGlobalInitialized,
+  seedGlobalAssets,
+  setStorage,
+  workspacePath,
+} from './storage.js';
+
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

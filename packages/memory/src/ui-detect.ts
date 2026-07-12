@@ -2,11 +2,11 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { findProjectRoot, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, workspacePath, runPythonArgsAsync } from '@orion/shared';
 
-const projectRoot = findProjectRoot(import.meta.url ? path.dirname(new URL(import.meta.url).pathname) : __dirname);
-const DEFAULT_MODEL = path.join(projectRoot, 'temp', 'weights', 'icon_detect', 'model.pt');
-const PY_SCRIPT = path.join(projectRoot, 'GenericAgent', 'memory', 'ui_detect.py');
+const DEFAULT_MODEL = workspacePath('.orion', 'temp', 'weights', 'icon_detect', 'model.pt');
+// Python fallback script is not currently bundled; path is kept consistent with global assets.
+const PY_SCRIPT = globalPath('assets', 'python', 'ui_detect.py');
 
 export interface UiDetection {
   bbox: [number, number, number, number];
@@ -27,7 +27,7 @@ interface UiDetectOutput {
 
 function tmpPaths(): { tmpJson: string; outPng: string } {
   const rand = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  const tmpJson = path.join(projectRoot, 'temp', `ui_detect_${rand}.json`);
+  const tmpJson = workspacePath('.orion', 'temp', `ui_detect_${rand}.json`);
   const outPng = tmpJson.replace('.json', '.png');
   return { tmpJson, outPng };
 }
