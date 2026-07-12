@@ -141,50 +141,50 @@ function ToolGroup({ turn, steps }: { turn: number; steps: TimelineStep[] }): Re
 
 function renderMessageContent(message: UiMessage, isStreaming: boolean): ReactNode {
   type Group =
-    | { kind: 'text'; content: string }
-    | { kind: 'thought'; content: string }
-    | { kind: 'tool_group'; turn: number; steps: TimelineStep[] }
+    | { kind: 'text'; content: string; startIdx: number }
+    | { kind: 'thought'; content: string; startIdx: number }
+    | { kind: 'tool_group'; turn: number; steps: TimelineStep[]; startIdx: number }
 
   const groups: Group[] = []
-  for (const unit of message.units) {
+  for (const [unitIdx, unit] of message.units.entries()) {
     if (unit.kind === 'text') {
       const last = groups[groups.length - 1]
       if (last && last.kind === 'text') {
         last.content += unit.content
       } else {
-        groups.push({ kind: 'text', content: unit.content })
+        groups.push({ kind: 'text', content: unit.content, startIdx: unitIdx })
       }
     } else if (unit.kind === 'thought') {
       const last = groups[groups.length - 1]
       if (last && last.kind === 'thought') {
         last.content += unit.content
       } else {
-        groups.push({ kind: 'thought', content: unit.content })
+        groups.push({ kind: 'thought', content: unit.content, startIdx: unitIdx })
       }
     } else if (unit.kind === 'tool') {
       const last = groups[groups.length - 1]
       if (last && last.kind === 'tool_group' && last.turn === unit.step.turn) {
         last.steps.push(unit.step)
       } else {
-        groups.push({ kind: 'tool_group', turn: unit.step.turn, steps: [unit.step] })
+        groups.push({ kind: 'tool_group', turn: unit.step.turn, steps: [unit.step], startIdx: unitIdx })
       }
     }
   }
 
   if (groups.length === 0 && message.text) {
-    groups.push({ kind: 'text', content: message.text })
+    groups.push({ kind: 'text', content: message.text, startIdx: 0 })
   }
 
   return (
     <>
-      {groups.map((group, idx) => {
+      {groups.map((group) => {
         if (group.kind === 'text') {
-          return <Markdown key={`text-${idx}`} text={group.content} isStreaming={isStreaming} />
+          return <Markdown key={`text-${group.startIdx}`} text={group.content} isStreaming={isStreaming} />
         }
         if (group.kind === 'thought') {
-          return <ThoughtBubble key={`thought-${idx}`}>{group.content}</ThoughtBubble>
+          return <ThoughtBubble key={`thought-${group.startIdx}`}>{group.content}</ThoughtBubble>
         }
-        return <ToolGroup key={`tool-${idx}`} turn={group.turn} steps={group.steps} />
+        return <ToolGroup key={`tool-${group.startIdx}-${group.turn}`} turn={group.turn} steps={group.steps} />
       })}
     </>
   )
@@ -815,6 +815,11 @@ export function App(): ReactElement {
                 id: currentMessageId,
                 delta: `\n\`\`\`\n${message}\n\`\`\``,
               })
+            } else if (event.event === 'stop') {
+              streamCompleted = true
+              closeStream()
+              void ping()
+              break
             } else if (event.event === 'done') {
               streamCompleted = true
               closeStream()

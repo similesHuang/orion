@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -13,14 +14,12 @@ import {
   ToolCall,
   ToolDefinition,
 } from '@orion/types';
-import { findProjectRoot } from '@orion/shared';
+import { findProjectRoot, sleep } from '@orion/shared';
 import { envToSessionConfigs, loadEnv } from './env-config.js';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const projectRoot = findProjectRoot(path.dirname(__filename));
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const llmLogHooks: Array<(label: 'Prompt' | 'Response', content: string) => void> = [];
 export const llmUsageHooks: Array<(usage: Record<string, number>) => void> = [];
@@ -54,7 +53,7 @@ function recordUsage(usage: Record<string, number>): void {
 }
 
 function writeLlmLog(label: string, content: string): void {
-  const logDir = path.join(process.cwd(), 'temp', 'model_responses');
+  const logDir = path.join(projectRoot, 'temp', 'model_responses');
   fs.mkdirSync(logDir, { recursive: true });
   const logPath = path.join(logDir, `model_responses_${process.pid}.txt`);
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -82,24 +81,9 @@ function jsonSize(obj: unknown): number {
 
 function compressHistoryTags(messages: Message[], keepRecent = 10, maxLen = 800): Message[] {
   const histPat = /<(history|key_info|earlier_context)>[\s\S]*?<\/\1>/g;
-  const tagPats = ['thinking', 'think', 'tool_use', 'tool_result'].map(
-    (tag) => ({
-      tag,
-      re: new RegExp(`(<${tag}>)([\\s\\S]*?)(<\\/${tag}>)`, 'g'),
-    })
-  );
-
-  function truncStr(s: string): string {
-    if (s.length <= maxLen) return s;
-    return `${s.slice(0, Math.floor(maxLen / 2))}\n...[Truncated]...\n${s.slice(-Math.floor(maxLen / 2))}`;
-  }
 
   function trunc(text: string): string {
-    text = text.replace(histPat, '<$1>[...]</$1>');
-    for (const { re } of tagPats) {
-      text = text.replace(re, (_, open, body, close) => `${open}${truncStr(body)}${close}`);
-    }
-    return text;
+    return text.replace(histPat, '<$1>[...]</$1>');
   }
 
   const limit = messages.length - keepRecent;
@@ -111,12 +95,6 @@ function compressHistoryTags(messages: Message[], keepRecent = 10, maxLen = 800)
     } else if (Array.isArray(c)) {
       for (const b of c) {
         if (b.type === 'text' && typeof b.text === 'string') b.text = trunc(b.text);
-        else if (b.type === 'tool_result' && typeof b.content === 'string') b.content = truncStr(b.content);
-        else if (b.type === 'tool_use' && typeof b.input === 'object' && b.input) {
-          for (const [k, v] of Object.entries(b.input)) {
-            if (typeof v === 'string') (b.input as Record<string, unknown>)[k] = truncStr(v);
-          }
-        }
       }
     }
   }
@@ -155,12 +133,91 @@ export function trimMessagesHistory(history: Message[], contextWin: number): voi
   }
 }
 
+async function* runAskLoop(
+  prompt: Message | string,
+  history: Message[],
+  contextWin: number,
+  makeMessages: (rawList: Message[]) => Message[],
+  rawAsk: (messages: Message[]) => AsyncGenerator<LLMStreamDelta, LLMResponse, unknown>,
+  buildAssistantContent: (resp: LLMResponse) => string | ContentBlock[]
+): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
+  const userMsg: Message = typeof prompt === 'string' ? { role: 'user', content: prompt } : prompt;
+  history.push(userMsg);
+  trimMessagesHistory(history, contextWin);
+  const messages = makeMessages(history);
+  const gen = rawAsk(messages);
+  let resp: LLMResponse | undefined;
+  try {
+    while (true) {
+      const chunk = await gen.next();
+      if (chunk.done) {
+        resp = chunk.value;
+        break;
+      }
+      yield chunk.value;
+    }
+  } catch (e) {
+    const err = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
+    yield { kind: 'error', message: err };
+    resp = { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
+  }
+  if (resp && !resp.content.startsWith('!!!Error:')) {
+    history.push({ role: 'assistant', content: buildAssistantContent(resp) });
+  }
+  return resp!;
+}
+
+function responseWithReadTimeout(resp: Response, ctrl: AbortController, readTimeoutSec: number): Response {
+  if (!resp.body || readTimeoutSec <= 0) return resp;
+  const original = resp.body;
+  let timer: NodeJS.Timeout | null = null;
+  const reset = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => ctrl.abort(), readTimeoutSec * 1000);
+  };
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const reader = original.getReader();
+      reset();
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              clear();
+              controller.close();
+              return;
+            }
+            reset();
+            controller.enqueue(value);
+          }
+        } catch (e) {
+          clear();
+          controller.error(e);
+        } finally {
+          reader.releaseLock();
+        }
+      };
+      pump();
+    },
+    cancel(reason) {
+      clear();
+      return original.cancel(reason);
+    },
+  });
+  return new Response(stream, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
+}
+
 async function* streamWithRetry(
   url: string,
   headers: Record<string, string>,
   payload: unknown,
   maxRetries: number,
-  connectTimeout: number
+  connectTimeout: number,
+  readTimeout = 0
 ): AsyncGenerator<LLMStreamDelta, Response, unknown> {
   const retryable = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -186,7 +243,7 @@ async function* streamWithRetry(
         yield { kind: 'error', message: err };
         throw new Error(err);
       }
-      return resp;
+      return responseWithReadTimeout(resp, ctrl, readTimeout);
     } catch (e) {
       clearTimeout(timeoutId);
       const errName = e instanceof Error ? e.name : String(e);
@@ -201,7 +258,7 @@ async function* streamWithRetry(
         await sleep(delay * 1000);
         continue;
       }
-      if (errName.startsWith('!!!Error:')) throw e;
+      if (errMsg.startsWith('!!!Error:')) throw e;
       const err = `!!!Error: ${errName}`;
       yield { kind: 'error', message: err };
       throw e;
@@ -591,10 +648,7 @@ function msgsClaude2Oai(messages: Message[]): Message[] {
 }
 
 function cryptoRandom(len: number): string {
-  const chars = '0123456789abcdef';
-  let out = '';
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
+  return crypto.randomBytes(Math.ceil(len / 2)).toString('hex').slice(0, len);
 }
 
 function fixMessages(messages: Message[]): Message[] {
@@ -663,30 +717,14 @@ export class OpenAISession extends BaseSession {
   }
 
   async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
-    const userMsg: Message = typeof prompt === 'string' ? { role: 'user', content: prompt } : prompt;
-    this.history.push(userMsg);
-    trimMessagesHistory(this.history, this.contextWin);
-    const messages = this.makeMessages(this.history);
-    const gen = this.rawAsk(messages);
-    let resp: LLMResponse | undefined;
-    try {
-      while (true) {
-        const chunk = await gen.next();
-        if (chunk.done) {
-          resp = chunk.value;
-          break;
-        }
-        yield chunk.value;
-      }
-    } catch (e) {
-      const err = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
-      yield { kind: 'error', message: err };
-      resp = { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
-    }
-    if (resp && !resp.content.startsWith('!!!Error:')) {
-      this.history.push({ role: 'assistant', content: resp.content });
-    }
-    return resp!;
+    return yield* runAskLoop(
+      prompt,
+      this.history,
+      this.contextWin,
+      (list) => this.makeMessages(list),
+      (list) => this.rawAsk(list),
+      (resp) => resp.content
+    );
   }
 
   makeMessages(rawList: Message[]): Message[] {
@@ -735,7 +773,7 @@ export class OpenAISession extends BaseSession {
     }
     if (this.tools) payload.tools = prepareOAITools(this.tools, this.apiMode);
 
-    const resp = yield* streamWithRetry(url, headers, payload, this.maxRetries, this.connectTimeout);
+    const resp = yield* streamWithRetry(url, headers, payload, this.maxRetries, this.connectTimeout, this.readTimeout);
     if (typeof resp === 'object' && resp.body) {
       const reader = resp.body.getReader();
       return yield* parseOpenAISSE(reader, this.apiMode);
@@ -801,46 +839,29 @@ export class AnthropicSession extends BaseSession {
   }
 
   async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
-    const userMsg: Message = typeof prompt === 'string' ? { role: 'user', content: prompt } : prompt;
-    this.history.push(userMsg);
-    trimMessagesHistory(this.history, this.contextWin);
-    const messages = this.makeMessages(this.history);
-    const gen = this.rawAsk(messages);
-    let resp: LLMResponse | undefined;
-    try {
-      while (true) {
-        const chunk = await gen.next();
-        if (chunk.done) {
-          resp = chunk.value;
-          break;
+    return yield* runAskLoop(
+      prompt,
+      this.history,
+      this.contextWin,
+      (list) => this.makeMessages(list),
+      (list) => this.rawAsk(list),
+      (resp) => {
+        const assistantContent: ContentBlock[] = [];
+        if (resp.content) assistantContent.push({ type: 'text', text: resp.content });
+        for (const tc of resp.tool_calls || []) {
+          let input: Record<string, unknown> = {};
+          try {
+            input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+          } catch {
+            input = { _raw: tc.function.arguments };
+          }
+          assistantContent.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
         }
-        yield chunk.value;
-      }
-    } catch (e) {
-      const err = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
-      yield { kind: 'error', message: err };
-      resp = { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
-    }
-    if (resp && !resp.content.startsWith('!!!Error:')) {
-      const assistantContent: ContentBlock[] = [];
-      if (resp.content) assistantContent.push({ type: 'text', text: resp.content });
-      for (const tc of resp.tool_calls || []) {
-        let input: Record<string, unknown> = {};
-        try {
-          input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-        } catch {
-          input = { _raw: tc.function.arguments };
-        }
-        assistantContent.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
-      }
-      this.history.push({
-        role: 'assistant',
-        content: assistantContent.length === 1 && assistantContent[0].type === 'text'
+        return assistantContent.length === 1 && assistantContent[0].type === 'text'
           ? assistantContent[0].text
-          : assistantContent,
-      });
-    }
-    return resp!;
+          : assistantContent;
+      }
+    );
   }
 
   makeMessages(rawList: Message[]): Message[] {
@@ -939,7 +960,7 @@ export class AnthropicSession extends BaseSession {
     }
 
     const url = `${autoMakeUrl(this.apiBase, 'messages')}?beta=true`;
-    const resp = yield* streamWithRetry(url, headers, payload, this.maxRetries, this.connectTimeout);
+    const resp = yield* streamWithRetry(url, headers, payload, this.maxRetries, this.connectTimeout, this.readTimeout);
     if (typeof resp === 'object' && resp.body) {
       const reader = resp.body.getReader();
       return yield* parseClaudeSSE(reader);
@@ -977,7 +998,15 @@ export class MixinSession extends BaseSession {
   }
 
   async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
-    return yield* this.sessions[0].ask(prompt);
+    const primary = this.sessions[0];
+    return yield* runAskLoop(
+      prompt,
+      primary.history,
+      primary.contextWin,
+      (list) => this.makeMessages(list),
+      (list) => this.rawAsk(list),
+      (resp) => resp.content
+    );
   }
 
   makeMessages(rawList: Message[]): Message[] {
@@ -1071,6 +1100,13 @@ export class NativeToolClient {
   async* chat(options: ChatOptions): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     if (options.tools) this.backend.tools = options.tools;
     if (!this.backend.history.length) this.pendingToolIds = [];
+
+    // Preserve the system prompt so it reaches the LLM backend.
+    if (options.messages[0]?.role === 'system') {
+      const systemContent = options.messages[0].content;
+      this.backend.system = typeof systemContent === 'string' ? systemContent : '';
+    }
+
     const combinedContent: ContentBlock[] = [];
     let toolResults: Array<{ tool_use_id: string; content: string }> = [];
     const lastUser = [...options.messages].reverse().find((m) => m.role === 'user');
@@ -1095,7 +1131,7 @@ export class NativeToolClient {
     }
     this.pendingToolIds = [];
     const merged: Message = { role: 'user', content: [...toolResultBlocks, ...combinedContent] };
-    writeLlmLog('Prompt', JSON.stringify(merged, null, 2));
+    writeLlmLog('Prompt', JSON.stringify(options.messages, null, 2));
     const gen = this.backend.ask(merged);
     let resp: LLMResponse | undefined;
     while (true) {
@@ -1112,23 +1148,6 @@ export class NativeToolClient {
     if (resp) writeLlmLog('Response', JSON.stringify(resp, null, 2));
     return resp!;
   }
-}
-
-export function loadSessions(configPath: string): BaseSession[] {
-  const text = fs.readFileSync(configPath, 'utf-8');
-  const cfg = JSON.parse(text) as Record<string, SessionConfig | unknown>;
-  const sessions: BaseSession[] = [];
-  for (const [k, v] of Object.entries(cfg)) {
-    if (!v || typeof v !== 'object') continue;
-    if (!k.includes('api') && !k.includes('config') && !k.includes('cookie')) continue;
-    const cfgItem = v as SessionConfig;
-    if (k.includes('native') && k.includes('claude')) sessions.push(new AnthropicSession(cfgItem));
-    else if (k.includes('native') && k.includes('oai')) sessions.push(new OpenAISession(cfgItem));
-    else if (k.includes('claude')) sessions.push(new AnthropicSession(cfgItem));
-    else if (k.includes('oai')) sessions.push(new OpenAISession(cfgItem));
-    else if (k.includes('mixin')) sessions.push(new MixinSession(sessions, cfgItem));
-  }
-  return sessions;
 }
 
 function inferSessionType(type: string | undefined, model: string, apibase: string): 'claude' | 'oai' | 'mixin' {

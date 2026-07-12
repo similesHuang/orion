@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { isPathContained } from '@orion/shared';
 
 const moduleDir = path.dirname(import.meta.url ? fileURLToPath(import.meta.url) : __filename);
 export const L4_DIR = path.resolve(moduleDir, '..', '..', '..', 'memory', 'L4_raw_sessions');
@@ -199,12 +200,24 @@ function sortedGlob(dir: string, pattern: string): string[] {
     .map((f) => path.join(dir, f));
 }
 
+function resolveRawDir(src: string | string[]): string {
+  if (Array.isArray(src)) {
+    if (!src.length) return process.cwd();
+    const dirs = src.map((s) => path.resolve(path.dirname(s)));
+    return dirs[0];
+  }
+  const resolved = path.resolve(src);
+  if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) return resolved;
+  return path.resolve(path.dirname(resolved));
+}
+
 export function batchProcess(
   src: string | string[],
   l4Dir: string | null = null,
   dryRun = true
 ): Record<string, unknown> {
   const targetDir = path.normalize(l4Dir || L4_DIR);
+  const rawDir = resolveRawDir(src);
   const rawFiles = Array.isArray(src)
     ? [...src].sort()
     : sortedGlob(src, 'model_responses_*.txt').sort();
@@ -213,8 +226,15 @@ export function batchProcess(
     return { processed: 0, skipped: 0, errors: 0, new_sessions: 0 };
   }
 
+  // Safety: reject any raw file outside the configured raw directory
+  const safeRawFiles = rawFiles.filter((fp) => {
+    const ok = isPathContained(rawDir, fp);
+    if (!ok) console.log(`[SAFETY] skipping raw file outside source dir: ${fp}`);
+    return ok;
+  });
+
   const existing = existingSessions(targetDir);
-  console.log(`Found ${rawFiles.length} raw, ${existing.size} existing in L4`);
+  console.log(`Found ${safeRawFiles.length} raw, ${existing.size} existing in L4`);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs_batch_'));
   const results: [string, string, string[], Record<string, unknown>, string][] = [];
@@ -222,7 +242,7 @@ export function batchProcess(
   const errors: [string, string][] = [];
   const cutoff = Date.now() / 1000 - 7200;
 
-  for (const fp of rawFiles) {
+  for (const fp of safeRawFiles) {
     const fname = path.basename(fp);
     if (fs.statSync(fp).mtimeMs / 1000 > cutoff) {
       skipped.push([fname, 'recent(<2h)']);
@@ -285,6 +305,10 @@ export function batchProcess(
     // Node.js 没有内置 zip 追加，这里简化为单独写每个压缩文件到目标目录
     for (const [sn, cp] of items) {
       const target = path.join(targetDir, `${sn}.txt`);
+      if (!isPathContained(targetDir, target)) {
+        console.error(`[SAFETY] refusing to copy outside target dir: ${target}`);
+        continue;
+      }
       fs.copyFileSync(cp, target);
     }
     console.log(`  ${mk}: +${items.length} archived`);
@@ -293,11 +317,15 @@ export function batchProcess(
   const toDel: string[] = results.map((r) => r[4]);
   for (const [fname, reason] of skipped) {
     if (reason.includes('recent')) continue;
-    const m = rawFiles.find((f) => path.basename(f) === fname);
+    const m = safeRawFiles.find((f) => path.basename(f) === fname);
     if (m) toDel.push(m);
   }
   let deleted = 0;
   for (const rp of toDel) {
+    if (!isPathContained(rawDir, rp)) {
+      console.error(`[SAFETY] refusing to delete outside raw dir: ${rp}`);
+      continue;
+    }
     try {
       fs.unlinkSync(rp);
       deleted++;

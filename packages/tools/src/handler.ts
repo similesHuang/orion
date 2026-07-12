@@ -1,7 +1,9 @@
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { LLMResponse } from '@orion/types';
+import { findProjectRoot, isPathContained, resolveAllowedPath } from '@orion/shared';
 
 export function smartFormat(data: unknown, maxStrLen = 100, omitStr = ' ... '): string {
   const s = typeof data === 'string' ? data : String(data);
@@ -40,7 +42,7 @@ export function logMemoryAccess(filePath: string): void {
 }
 
 export function getProjectRoot(): string {
-  return path.resolve(process.cwd());
+  return findProjectRoot();
 }
 
 export function expandFileRefs(text: string, baseDir?: string): string {
@@ -48,7 +50,7 @@ export function expandFileRefs(text: string, baseDir?: string): string {
   return text.replace(pattern, (_match, filePath, startStr, endStr) => {
     const start = parseInt(startStr, 10);
     const end = parseInt(endStr, 10);
-    const resolved = path.resolve(baseDir || '.', filePath);
+    const resolved = resolveAllowedPath(baseDir || process.cwd(), filePath);
     if (!fs.existsSync(resolved)) throw new Error(`引用文件不存在: ${resolved}`);
     const lines = fs.readFileSync(resolved, 'utf-8').split('\n');
     if (start < 1 || end > lines.length || start > end) {
@@ -57,6 +59,8 @@ export function expandFileRefs(text: string, baseDir?: string): string {
     return lines.slice(start - 1, end).join('\n');
   });
 }
+
+const SHELL_TYPES = ['powershell', 'bash', 'sh', 'shell', 'ps1', 'pwsh'];
 
 export async function* codeRun(
   code: string,
@@ -78,13 +82,38 @@ export async function* codeRun(
     let header = '';
     if (fs.existsSync(headerPath)) header = fs.readFileSync(headerPath, 'utf-8');
     const dir = codeCwd || actualCwd;
-    tmpPath = path.join(dir, `.tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.ai.py`);
+    tmpPath = path.join(dir, `.tmp_${Date.now()}_${crypto.randomUUID()}.ai.py`);
     fs.writeFileSync(tmpPath, header + code, 'utf-8');
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
     cmd = [pythonCmd, '-u', tmpPath];
-  } else if (['powershell', 'bash', 'sh', 'shell', 'ps1', 'pwsh'].includes(codeType)) {
-    if (process.platform === 'win32') cmd = ['powershell', '-NoProfile', '-NonInteractive', '-Command', code];
-    else cmd = ['bash', '-c', code];
+  } else if (SHELL_TYPES.includes(codeType)) {
+    if (process.env.ORION_ALLOW_SHELL !== 'true') {
+      return {
+        status: 'error',
+        stdout: '',
+        exit_code: null,
+        msg: 'Shell execution is disabled by default. Set ORION_ALLOW_SHELL=true to enable it.',
+      };
+    }
+    const dir = codeCwd || actualCwd;
+    if (process.platform === 'win32') {
+      tmpPath = path.join(dir, `.tmp_${Date.now()}_${crypto.randomUUID()}.ai.ps1`);
+      fs.writeFileSync(tmpPath, code, 'utf-8');
+      cmd = [
+        'powershell',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        tmpPath,
+      ];
+    } else {
+      tmpPath = path.join(dir, `.tmp_${Date.now()}_${crypto.randomUUID()}.ai.sh`);
+      fs.writeFileSync(tmpPath, code, 'utf-8');
+      fs.chmodSync(tmpPath, 0o700);
+      cmd = ['bash', tmpPath];
+    }
   } else {
     return { status: 'error', stdout: '', exit_code: null, msg: `不支持的类型: ${codeType}` };
   }
@@ -92,6 +121,7 @@ export async function* codeRun(
   const logs: string[] = [];
   let exitCode: number | null = null;
   let killed = false;
+  let sigtermSent = false;
   const startTime = Date.now();
 
   const proc = spawn(cmd[0], cmd.slice(1), {
@@ -115,10 +145,23 @@ export async function* codeRun(
     proc.on('error', () => resolve(null));
   });
 
+  const cleanup = () => {
+    if (tmpPath && fs.existsSync(tmpPath)) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {}
+    }
+  };
+
   const interval = setInterval(() => {
     const timedOut = (Date.now() - startTime) / 1000 > timeoutSec;
     const stopped = stopSignal && stopSignal.length > 0;
     if ((timedOut || stopped) && !killed) {
+      if (!sigtermSent) {
+        proc.kill('SIGTERM');
+        sigtermSent = true;
+        return;
+      }
       proc.kill('SIGKILL');
       killed = true;
       if (timedOut) logs.push('\n[Timeout Error] 超时强制终止');
@@ -126,16 +169,18 @@ export async function* codeRun(
     }
   }, 500);
 
-  exitCode = await finished;
-  clearInterval(interval);
+  try {
+    exitCode = await finished;
+  } finally {
+    clearInterval(interval);
+    cleanup();
+  }
 
   const stdoutStr = logs.join('');
   const status = exitCode === 0 ? 'success' : 'error';
   const statusIcon = exitCode === 0 ? '✅' : exitCode === null ? '⏳' : '❌';
   const outputSnippet = smartFormat(stdoutStr, 600, '\n\n[omitted long output]\n\n');
   yield `[Status] ${statusIcon} Exit Code: ${exitCode}\n[Stdout]\n${outputSnippet}\n`;
-
-  if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
 
   return {
     status,
@@ -188,10 +233,19 @@ export function fileRead(
   start = 1,
   keyword?: string,
   count = 200,
-  showLinenos = true
+  showLinenos = true,
+  cwd?: string
 ): string {
+  const allowedBase = cwd || getProjectRoot();
+  let resolved: string;
   try {
-    const content = fs.readFileSync(filePath, { encoding: 'utf-8', flag: 'r' });
+    resolved = resolveAllowedPath(allowedBase, filePath);
+  } catch (e) {
+    return `Error: ${formatError(e)}`;
+  }
+
+  try {
+    const content = fs.readFileSync(resolved, { encoding: 'utf-8', flag: 'r' });
     const allLines = content.split('\n');
     const lines = allLines.map((l, i) => [i + 1, l] as [number, string]);
 
@@ -218,7 +272,8 @@ export function fileRead(
           start,
           undefined,
           count,
-          showLinenos
+          showLinenos,
+          cwd
         )}`;
       }
     } else {
@@ -237,8 +292,8 @@ export function fileRead(
 
     const truncated = selected.map(([i, l]) => [i, l.length <= L_MAX ? l : `${l.slice(0, L_MAX)}${TAG}`] as [number, string]);
     const body = truncated.map(([i, l]) => (showLinenos ? `${i}|${l}` : l)).join('\n');
-    readDirs.add(path.dirname(path.resolve(filePath)));
-    logMemoryAccess(filePath);
+    readDirs.add(path.dirname(resolved));
+    logMemoryAccess(resolved);
 
     if (showLinenos) return totalTag + body;
     if (partial) return body + `\n\n[FILE PARTIAL: showing ${realCount}/${tlStr} lines; assess need for more]`;
@@ -247,9 +302,8 @@ export function fileRead(
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       let msg = `Error: File not found: ${filePath}`;
       try {
-        const target = path.basename(filePath);
-        const dir = path.dirname(path.dirname(path.resolve(filePath)));
-        const roots = new Set([dir, ...[...readDirs].filter((d) => !d.startsWith(dir))]);
+        const target = path.basename(resolved);
+        const roots = new Set([allowedBase, ...[...readDirs].filter((d) => isPathContained(allowedBase, d))]);
         const cands: Array<[string, string]> = [];
         for (const r of roots) {
           cands.push(...scanFiles(r));
@@ -272,9 +326,20 @@ export function fileRead(
   }
 }
 
-export function filePatch(filePath: string, oldContent: string, newContent: string): { status: string; msg: string } {
+export function filePatch(
+  filePath: string,
+  oldContent: string,
+  newContent: string,
+  cwd?: string
+): { status: string; msg: string } {
+  const allowedBase = cwd || getProjectRoot();
+  let resolved: string;
   try {
-    const resolved = path.resolve(filePath);
+    resolved = resolveAllowedPath(allowedBase, filePath);
+  } catch (e) {
+    return { status: 'error', msg: formatError(e) };
+  }
+  try {
     if (!fs.existsSync(resolved)) return { status: 'error', msg: '文件不存在' };
     if (!oldContent) return { status: 'error', msg: 'old_content 为空，请确认 arguments' };
     const fullText = fs.readFileSync(resolved, 'utf-8');
@@ -298,25 +363,35 @@ export function filePatch(filePath: string, oldContent: string, newContent: stri
   }
 }
 
-export function fileWrite(filePath: string, content: string, mode: string): { status: string; writed_bytes: number; msg?: string } {
+export function fileWrite(
+  filePath: string,
+  content: string,
+  mode: string,
+  cwd?: string
+): { status: string; writed_bytes: number; msg?: string } {
+  const allowedBase = cwd || getProjectRoot();
+  let resolved: string;
   try {
-    const dir = path.dirname(filePath);
+    resolved = resolveAllowedPath(allowedBase, filePath);
+  } catch (e) {
+    return { status: 'error', writed_bytes: 0, msg: formatError(e) };
+  }
+  try {
+    const dir = path.dirname(resolved);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (mode === 'prepend') {
-      const old = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : '';
-      fs.writeFileSync(filePath, content + old, 'utf-8');
+      const old = fs.existsSync(resolved) ? fs.readFileSync(resolved, 'utf-8') : '';
+      fs.writeFileSync(resolved, content + old, 'utf-8');
     } else {
-      fs.writeFileSync(filePath, content, mode === 'append' ? { flag: 'a' } : undefined);
+      fs.writeFileSync(resolved, content, mode === 'append' ? { flag: 'a' } : undefined);
     }
-    return { status: 'success', writed_bytes: content.length };
+    return { status: 'success', writed_bytes: Buffer.byteLength(content, 'utf-8') };
   } catch (e) {
     return { status: 'error', writed_bytes: 0, msg: formatError(e) };
   }
 }
 
 export function extractRobustContent(text: string): string | null {
-  const tagMatch = text.match(/<file_content[^>]*>([\s\S]*?)<\/file_content>/g);
-  if (tagMatch) return tagMatch[tagMatch.length - 1].replace(/<file_content[^>]*>|<\/file_content>/g, '').trim();
   const blockMatch = text.match(/```[^\n]*\n([\s\S]*?)```/g);
   if (blockMatch) {
     const last = blockMatch[blockMatch.length - 1];

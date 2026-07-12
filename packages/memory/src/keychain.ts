@@ -121,6 +121,13 @@ class Keys {
   private save(): void {
     rotateBackup(keyPath);
     fs.writeFileSync(keyPath, encrypt(JSON.stringify(this.d)));
+    if (process.platform !== 'win32') {
+      try {
+        fs.chmodSync(keyPath, 0o600);
+      } catch (e) {
+        console.log(`[keychain] WARNING: failed to set permissions: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     this.dirty = false;
   }
 

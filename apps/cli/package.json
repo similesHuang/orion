@@ -14,7 +14,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@orion/agent": "workspace:*"
+    "@orion/agent": "workspace:*",
+    "@orion/chat": "workspace:*",
+    "@orion/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

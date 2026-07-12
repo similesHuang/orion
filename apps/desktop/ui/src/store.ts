@@ -363,8 +363,12 @@ export function loadState(): UiState {
   return { projects: [], sessions: [initial], activeSessionId: initial.id, expandedProjectIds: [] }
 }
 
+let saveTimer: number | null = null
+
 export function saveState(state: UiState): void {
+  if (saveTimer !== null) window.clearTimeout(saveTimer)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  saveTimer = null
 }
 
 export function maybeUpdateSessionTitle(session: ChatSession, text: string): ChatSession {

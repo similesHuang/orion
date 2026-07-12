@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@orion/agent": "workspace:*",
-    "@orion/shared": "workspace:*"
+    "@orion/shared": "workspace:*",
+    "@orion/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

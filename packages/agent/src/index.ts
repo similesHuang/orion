@@ -3,7 +3,7 @@ import path from 'path';
 import readline from 'readline';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { findProjectRoot } from '@orion/shared';
+import { findProjectRoot, sleep } from '@orion/shared';
 import { agentRunnerLoop } from './agent-loop.js';
 import {
   createClient,
@@ -255,8 +255,9 @@ export class GenericAgent {
     this.taskQueue.push(item);
     if (!this.processing) void this.processQueue();
     return {
-      get: async (_block?: boolean, timeout?: number) => {
+      get: async (block?: boolean, timeout?: number) => {
         if (item.output.length) return item.output.shift() || null;
+        if (block === false) return null;
         return new Promise<{ done?: string; next?: AgentYield; source?: string } | null>((resolve) => {
           pending.push(resolve);
           if (timeout !== undefined) {
@@ -338,8 +339,6 @@ export class GenericAgent {
         if (this.stopSig) break;
         if (chunk.kind === 'text') {
           fullResp += chunk.content;
-        } else if (chunk.kind === 'error') {
-          fullResp += `\n\`\`\`\n${chunk.message}\n\`\`\``;
         }
         task.output.push({ next: chunk, source: task.source });
       }
@@ -349,7 +348,9 @@ export class GenericAgent {
     } catch (e) {
       const err = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       console.error(`Backend Error: ${err}`);
-      task.output.push({ done: fullResp + `\n\`\`\`\n${err}\n\`\`\``, source: task.source });
+      const doneText = fullResp + (fullResp ? '\n\n' : '') + `\`\`\`\n${err}\n\`\`\``;
+      task.output.push({ done: doneText, source: task.source });
+      task.output.push({ next: { kind: 'error', message: err }, source: task.source });
     } finally {
       this.isRunning = false;
       this.stopSig = false;
@@ -599,23 +600,26 @@ function getFlag(args: string[], key: string): string | undefined {
   return undefined;
 }
 
-function renderAgentYieldToText(y: AgentYield): string {
+export function renderAgentYieldToText(y: AgentYield): string {
+  const showThinking = process.env.ORION_CLI_THINKING === 'true';
+  const showToolResults = process.env.ORION_CLI_TOOL_RESULTS === 'true';
   switch (y.kind) {
     case 'text':
       return y.content;
     case 'thought':
-      return '';
+      return showThinking ? `\n[Thought] ${y.content}\n` : '';
     case 'tool_call':
       return `\n🛠️  ${y.toolName}\n`;
     case 'tool_result':
-      return y.status === 'error' ? '[error]\n' : '';
+      if (y.status === 'error') return '[error]\n';
+      if (showToolResults) {
+        const summary = typeof y.content === 'string' ? y.content : JSON.stringify(y.content);
+        return `\n[Result] ${summary.slice(0, 200)}\n`;
+      }
+      return '';
     case 'error':
       return `\n!!!Error: ${y.message}\n`;
     default:
       return '';
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

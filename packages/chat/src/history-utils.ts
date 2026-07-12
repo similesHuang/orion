@@ -1,7 +1,6 @@
 import fs from 'fs';
 
 const BLOCK_RE = /^=== (Prompt|Response) ===.*?\n(.*?)(?=^=== (?:Prompt|Response) ===|\Z)/gms;
-const SUMMARY_RE = /<summary>\s*(.*?)\s*<\/summary>/s;
 const HISTORY_RE = /<history>\s*(.*?)\s*<\/history>/s;
 const FILE_HINT = 'If you need to show files to user, use [FILE:filepath] in your response.';
 
@@ -69,7 +68,7 @@ export function extractNativeUserLine(promptText: string): string {
   let text = promptText.trim();
   if (!text || text.includes('<history>') || text.startsWith('### [WORKING MEMORY]')) return '';
   if (text.startsWith(FILE_HINT)) text = text.slice(FILE_HINT.length).trim();
-  if (text.includes('### 用户当前消息')) text = text.split('### 用户当前消息', 1)[1]?.trim() || '';
+  if (text.includes('### 用户当前消息')) text = text.split('### 用户当前消息', 2)[1]?.trim() || '';
   return text;
 }
 
@@ -97,8 +96,9 @@ export function extractAssistantText(responseBody: string): string {
 
 export function extractAssistantSummary(responseBody: string): string {
   const text = extractAssistantText(responseBody);
-  const m = text.match(SUMMARY_RE);
-  return m ? m[1].trim().slice(0, 500) : '';
+  const stripped = text.replace(/```[\s\S]*?```/g, ' ').trim();
+  const firstLine = stripped.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
+  return firstLine.slice(0, 500);
 }
 
 export function readFileSafe(filePath: string): string | null {

@@ -1,7 +1,7 @@
 import type { FieldSpec, GatewayUiSpec } from './types'
 
 export const STORAGE_KEY = 'orion-desktop-ui-state-v5'
-export const SSE_INACTIVITY_MS = 90_000
+export const SSE_INACTIVITY_MS = 300_000
 export const MAX_BUFFER_LEN = 500_000
 
 export const PRIMARY_MODEL_FIELDS: FieldSpec[] = [

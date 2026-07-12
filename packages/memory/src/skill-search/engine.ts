@@ -178,7 +178,7 @@ export function detectEnvironment(): EnvironmentInfo {
   };
 }
 
-const DEFAULT_API_URL = 'http://www.fudankw.cn:58787';
+const DEFAULT_API_URL = 'https://www.fudankw.cn:58787';
 
 function getApiUrl(): string {
   return process.env.SKILL_SEARCH_API || DEFAULT_API_URL;
@@ -197,9 +197,19 @@ export class SkillSearchError extends Error {
 
 async function apiRequest(endpoint: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const url = `${getApiUrl()}/${endpoint}`;
+  const parsedUrl = new URL(url);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const key = getApiKey();
-  if (key) headers.Authorization = `Bearer ${key}`;
+  if (key) {
+    if (parsedUrl.protocol !== 'https:') {
+      if (process.env.SKILL_SEARCH_ALLOW_HTTP === 'true') {
+        console.warn('[skill-search] sending API key over plain HTTP because SKILL_SEARCH_ALLOW_HTTP=true');
+      } else {
+        throw new SkillSearchError('Refusing to send API key over plain HTTP. Use HTTPS or set SKILL_SEARCH_ALLOW_HTTP=true.');
+      }
+    }
+    headers.Authorization = `Bearer ${key}`;
+  }
   try {
     const resp = await fetch(url, {
       method: 'POST',

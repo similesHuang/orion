@@ -3,6 +3,10 @@ import path from 'path';
 
 export * from './run-python.js';
 
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function loadMykey(scriptFile?: string): Record<string, unknown> {
   let dir = scriptFile ? path.dirname(scriptFile) : process.cwd();
   if (dir.endsWith('dist') || dir.includes(`${path.sep}dist${path.sep}`) || dir.endsWith('src') || dir.includes(`${path.sep}src${path.sep}`)) {
@@ -82,4 +86,40 @@ export function findProjectRoot(startDir?: string): string {
     dir = parent;
   }
   return process.cwd();
+}
+
+/**
+ * Check whether `target` is contained within `parent` after realpath resolution.
+ * Both paths are normalized and resolved.
+ */
+export function isPathContained(parent: string, target: string): boolean {
+  let resolvedParent: string;
+  try {
+    resolvedParent = fs.realpathSync(parent);
+  } catch {
+    resolvedParent = path.resolve(parent);
+  }
+  let resolvedTarget: string;
+  try {
+    resolvedTarget = fs.realpathSync(target);
+  } catch {
+    resolvedTarget = path.resolve(target);
+  }
+  const rel = path.relative(resolvedParent, resolvedTarget);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * Resolve `p` under `baseDir` and ensure it stays within `baseDir`.
+ * Throws if the resolved path escapes the base directory.
+ */
+export function resolveAllowedPath(baseDir: string, p: string): string {
+  if (path.isAbsolute(p)) {
+    throw new Error(`Absolute paths are not allowed: ${p}`);
+  }
+  const resolved = path.resolve(baseDir, p);
+  if (!isPathContained(baseDir, resolved)) {
+    throw new Error(`Path escapes allowed directory: ${p}`);
+  }
+  return resolved;
 }

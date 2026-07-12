@@ -1,4 +1,5 @@
 import type { ChatSession, Project, Role, UiMessage } from './types'
+import { MAX_BUFFER_LEN } from './constants'
 
 export interface SseEvent {
   event?: string
@@ -7,29 +8,26 @@ export interface SseEvent {
 
 function shouldFlush(buffer: string): boolean {
   if (buffer.length >= 16) return true
-  if (/\s$/.test(buffer) || /[，。！？；："'）\]\}、,.!?;:\")\]\}]$/.test(buffer.slice(-1))) return true
+  if (/\s$/.test(buffer) || /[，。！？；："'）\]\}、,.!?;:")\]\}]$/.test(buffer.slice(-1))) return true
   return false
+}
+
+function flushBuffer(buffer: string): SseEvent {
+  return { event: 'text', data: JSON.stringify({ delta: buffer }) }
 }
 
 export async function* streamBuffer(source: AsyncIterable<SseEvent>): AsyncIterable<SseEvent> {
   let buffer = ''
   for await (const ev of source) {
-    if (ev.event === 'tool_call' || ev.event === 'tool_result' || ev.event === 'done' || ev.event === 'error') {
-      if (buffer) {
-        yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
-        buffer = ''
-      }
-      yield ev
-      continue
-    }
     if (ev.event === 'thought') {
       // thoughts are independent blocks; don't flush the text buffer
       yield ev
       continue
     }
-    if (ev.event !== 'text') {
+    const isNonText = ev.event !== 'text'
+    if (isNonText) {
       if (buffer) {
-        yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+        yield flushBuffer(buffer)
         buffer = ''
       }
       yield ev
@@ -42,13 +40,16 @@ export async function* streamBuffer(source: AsyncIterable<SseEvent>): AsyncItera
       delta = ev.data
     }
     buffer += delta
-    if (shouldFlush(buffer)) {
-      yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+    if (buffer.length >= MAX_BUFFER_LEN) {
+      yield flushBuffer(buffer)
+      buffer = ''
+    } else if (shouldFlush(buffer)) {
+      yield flushBuffer(buffer)
       buffer = ''
     }
   }
   if (buffer) {
-    yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+    yield flushBuffer(buffer)
   }
 }
 
@@ -59,6 +60,8 @@ export async function* parseSse(reader: ReadableStreamDefaultReader<Uint8Array>)
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
+    // Normalize CRLF to LF before splitting on double newlines
+    buffer = buffer.replace(/\r\n/g, '\n')
     let eventEnd: number
     while ((eventEnd = buffer.indexOf('\n\n')) !== -1) {
       const eventText = buffer.slice(0, eventEnd)

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { LLMResponse } from '@orion/types';
+import { findProjectRoot, resolveAllowedPath } from '@orion/shared';
 import {
   codeRun,
   consumeFile,
@@ -42,7 +43,7 @@ export class GenericAgentHandler extends BaseHandler {
 
   private getAbsPath(p: string): string {
     if (!p) return '';
-    return path.resolve(this.cwd, p);
+    return resolveAllowedPath(this.cwd, p);
   }
 
   private getAnchorPrompt(skip = false): string {
@@ -151,8 +152,8 @@ export class GenericAgentHandler extends BaseHandler {
   }
 
   async* do_file_patch(args: Record<string, unknown>, _response: LLMResponse): AsyncGenerator<string, StepOutcome, unknown> {
-    const filePath = this.getAbsPath(String(args.path || ''));
-    yield `[Action] Patching file: ${filePath}\n`;
+    const filePath = String(args.path || '');
+    yield `[Action] Patching file: ${path.basename(filePath)}\n`;
     const oldContent = String(args.old_content || '');
     let newContent = String(args.new_content || '');
     try {
@@ -161,31 +162,31 @@ export class GenericAgentHandler extends BaseHandler {
       yield `[Status] ❌ 引用展开失败: ${formatError(e)}\n`;
       return new StepOutcome({ status: 'error', msg: formatError(e) }, '\n');
     }
-    const result = filePatch(filePath, oldContent, newContent);
+    const result = filePatch(filePath, oldContent, newContent, this.cwd);
     yield `\n${JSON.stringify(result)}\n`;
     return new StepOutcome(result, this.getAnchorPrompt(!!args._index));
   }
 
   async* do_file_write(args: Record<string, unknown>, response: LLMResponse): AsyncGenerator<string, StepOutcome, unknown> {
-    const filePath = this.getAbsPath(String(args.path || ''));
+    const filePath = String(args.path || '');
     const mode = (args.mode as string) || 'overwrite';
     const actionStr = { prepend: 'Prepending to', append: 'Appending to' }[mode] || 'Overwriting';
     yield `[Action] ${actionStr} file: ${path.basename(filePath)}\n`;
 
     let content = (args.content as string) || extractRobustContent(response.content);
     if (!content) {
-      yield `[Status] ❌ 失败: 未在回复中找到 <file_content> 代码块内容\n`;
+      yield `[Status] ❌ 失败: 未提供文件内容（请通过 content 参数或代码块传入）\n`;
       return new StepOutcome(
         {
           status: 'error',
-          msg: 'No content found. Blank is not supported. Put content inside <file_content>...</file_content> tags in your reply body before call file_write.',
+          msg: 'No content found. Provide content via the content argument or a fenced code block.',
         },
         '\n'
       );
     }
     try {
       content = expandFileRefs(content, this.cwd);
-      const result = fileWrite(filePath, content, mode);
+      const result = fileWrite(filePath, content, mode, this.cwd);
       yield `[Status] ✅ ${mode.charAt(0).toUpperCase() + mode.slice(1)} 成功 (${content.length} bytes)\n`;
       return new StepOutcome(result, this.getAnchorPrompt(!!args._index));
     } catch (e) {
@@ -195,22 +196,20 @@ export class GenericAgentHandler extends BaseHandler {
   }
 
   async* do_file_read(args: Record<string, unknown>): AsyncGenerator<string, StepOutcome, unknown> {
-    const filePath = this.getAbsPath(String(args.path || ''));
-    yield `\n[Action] Reading file: ${filePath}\n`;
+    const filePath = String(args.path || '');
+    const resolvedPath = this.getAbsPath(filePath);
+    yield `\n[Action] Reading file: ${resolvedPath}\n`;
     const start = parseInt(String(args.start ?? 1), 10);
     const count = parseInt(String(args.count ?? 200), 10);
     const keyword = args.keyword as string | undefined;
     const showLinenos = args.show_linenos !== false;
-    let result = fileRead(filePath, start, keyword, count, showLinenos);
-    if (showLinenos && !result.startsWith('Error:')) {
-      result = '由于设置了show_linenos，以下返回信息为：(行号|)内容 。\n' + result;
-    }
+    let result = fileRead(filePath, start, keyword, count, showLinenos, this.cwd);
     if (result.includes(' ... [TRUNCATED]')) {
       result += '\n\n（某些行被截断，如需完整内容可改用 code_run 读取）';
     }
     result = smartFormat(result, 20000, '\n\n[omitted long content]\n\n');
     let nextPrompt = this.getAnchorPrompt(!!args._index);
-    if (filePath.includes('memory') || filePath.includes('sop')) {
+    if (resolvedPath.includes('memory') || resolvedPath.includes('sop')) {
       nextPrompt +=
         '\n[SYSTEM TIPS] 正在读取记忆或SOP文件，若决定按sop执行请提取sop中的关键点（特别是靠后的）update working memory.';
     }
@@ -238,8 +237,9 @@ export class GenericAgentHandler extends BaseHandler {
       getGlobalMemory();
     yield '[Info] Start distilling good memory for long-term storage.\n';
     const sopPath = './memory/memory_management_sop.md';
-    const result = fs.existsSync(sopPath)
-      ? 'This is L0:\n' + fileRead(path.resolve(sopPath), 1, undefined, 200, false)
+    const projectRoot = findProjectRoot(this.cwd);
+    const result = fs.existsSync(path.resolve(projectRoot, sopPath))
+      ? 'This is L0:\n' + fileRead(sopPath, 1, undefined, 200, false, projectRoot)
       : 'Memory Management SOP not found. Do not update memory.';
     return new StepOutcome(result, prompt);
   }
@@ -283,8 +283,6 @@ export class GenericAgentHandler extends BaseHandler {
         const afterBlock = content.slice(m.index! + m[0].length);
         if (!afterBlock.trim()) {
           let residual = content.replace(m[0], '');
-          residual = residual.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-          residual = residual.replace(/<summary>[\s\S]*?<\/summary>/gi, '');
           const cleanResidual = residual.replace(/\s+/g, '');
           if (cleanResidual.length <= 30) {
             yield '[Info] Detected large code block without tool call and no extra natural language. Requesting clarification.\n';
@@ -405,15 +403,14 @@ export class GenericAgentHandler extends BaseHandler {
     nextPrompt: string,
     _exitReason: unknown
   ): Promise<string> {
-    const stripped = response.content.replace(/```.*?```|<thinking>.*?<\/thinking>/gs, '');
-    const summaryMatch = stripped.match(/<summary>\s*(.*?)\s*<\/summary>/s);
+    const stripped = response.content.replace(/```[\s\S]*?```/gs, '').trim();
+    const tc = toolCalls[0];
+    const cleanArgs = Object.fromEntries(Object.entries(tc.args).filter(([k]) => !k.startsWith('_')));
     let summary: string;
-    if (summaryMatch) {
-      summary = summaryMatch[1].trim();
+    if (tc.tool_name === 'no_tool') {
+      summary = stripped.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '直接回答了用户问题';
     } else {
-      const tc = toolCalls[0];
-      const cleanArgs = Object.fromEntries(Object.entries(tc.args).filter(([k]) => !k.startsWith('_')));
-      summary = tc.tool_name === 'no_tool' ? '直接回答了用户问题' : `调用工具${tc.tool_name}, args: ${JSON.stringify(cleanArgs)}`;
+      summary = `调用工具${tc.tool_name}, args: ${JSON.stringify(cleanArgs)}`;
     }
     summary = smartFormat(summary.replace(/\n/g, ''), 80);
     this.historyInfo.push(`[Agent] ${summary}`);

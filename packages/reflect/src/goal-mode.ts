@@ -97,7 +97,7 @@ export function check(projectRoot: string): string {
     saveState(state);
     return BUDGET_LIMIT_PROMPT
       .replace('{objective}', String(state.objective || ''))
-      .replace('{budget_min}', String(budgetSec / 60))
+      .replace('{budget_min}', (budgetSec / 60).toFixed(1))
       .replace('{done_prompt}', String(state.done_prompt || ''));
   }
 
@@ -105,8 +105,8 @@ export function check(projectRoot: string): string {
   saveState(state);
   return CONTINUATION_PROMPT
     .replace('{objective}', String(state.objective || ''))
-    .replace('{elapsed_min}', String(elapsed / 60))
-    .replace('{remaining_min}', String(remaining / 60))
+    .replace('{elapsed_min}', (elapsed / 60).toFixed(1))
+    .replace('{remaining_min}', (remaining / 60).toFixed(1))
     .replace('{turn}', String(turn));
 }
 

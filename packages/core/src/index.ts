@@ -1,7 +1,7 @@
 export * from '@orion/types';
 export { GenericAgent, main } from '@orion/agent';
 export { agentRunnerLoop } from '@orion/agent';
-export { createClient, loadSessions, NativeToolClient } from '@orion/llm';
+export { createClient, NativeToolClient } from '@orion/llm';
 export { GenericAgentHandler, HandlerParent } from '@orion/agent';
 export * as ultraplan from '@orion/agent';
 export * as costTracker from '@orion/agent';

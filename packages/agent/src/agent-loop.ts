@@ -26,11 +26,6 @@ export class StepOutcome {
 
 export class BaseHandler {
   currentTurn = 0;
-  _doneHooks: string[] = [];
-
-  addDoneHook(hook: string): void {
-    this._doneHooks.push(hook);
-  }
 
   async toolBeforeCallback(_toolName: string, _args: Record<string, unknown>, _response: LLMResponse): Promise<void> {}
   async toolAfterCallback(_toolName: string, _args: Record<string, unknown>, _response: LLMResponse, _ret: StepOutcome): Promise<void> {}
@@ -47,11 +42,15 @@ export class BaseHandler {
   }
 
   async* dispatch(toolName: string, args: Record<string, unknown>, response: LLMResponse): AsyncGenerator<string, StepOutcome, unknown> {
+    if (!/^[a-zA-Z0-9_]+$/.test(toolName)) {
+      yield `Invalid tool name: ${toolName}\n`;
+      return new StepOutcome(null, `Invalid tool name ${toolName}`);
+    }
     const methodName = `do_${toolName}` as keyof this;
-    if (typeof this[methodName] === 'function') {
-      args._index = (args._index as number) ?? 0;
+    const method = (this[methodName] as GeneratorFn | undefined);
+    if (typeof method === 'function') {
       await this.toolBeforeCallback(toolName, args, response);
-      const ret = (this[methodName] as GeneratorFn).call(this, args, response);
+      const ret = method.call(this, args, response);
       let outcome: StepOutcome;
       if (isAsyncGenerator(ret)) {
         const iterator = ret[Symbol.asyncIterator]();
@@ -180,9 +179,6 @@ export async function* agentRunnerLoop(
         exitReason = { result: 'CURRENT_TASK_DONE', data: outcome.data };
         break;
       }
-      if (outcome.nextPrompt.startsWith('Unknown tool')) {
-        // reset tools hint
-      }
 
       const status: 'done' | 'error' = isErrorOutcome(outcome) ? 'error' : 'done';
       if (tc.tool_name !== 'no_tool') {
@@ -199,12 +195,13 @@ export async function* agentRunnerLoop(
       nextPrompts.add(outcome.nextPrompt);
     }
 
-    if (nextPrompts.size === 0 || exitReason) {
-      if (exitReason?.result === 'EXITED' || handler._doneHooks.length === 0) {
-        finalExitReason = exitReason ?? { result: 'MAX_TURNS_EXCEEDED' };
-        break;
-      }
-      nextPrompts.add(handler._doneHooks.shift()!);
+    if (nextPrompts.size === 0) {
+      finalExitReason = exitReason ?? { result: 'MAX_TURNS_EXCEEDED' };
+      break;
+    }
+    if (exitReason?.result === 'EXITED') {
+      finalExitReason = exitReason;
+      break;
     }
 
     const nextPrompt = await handler.turnEndCallback(

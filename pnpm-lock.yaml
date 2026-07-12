@@ -32,6 +32,12 @@ importers:
       '@orion/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@orion/chat':
+        specifier: workspace:*
+        version: link:../../packages/chat
+      '@orion/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -181,6 +187,9 @@ importers:
       '@orion/shared':
         specifier: workspace:*
         version: link:../shared
+      '@orion/types':
+        specifier: workspace:*
+        version: link:../types
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -282,6 +291,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@orion/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@orion/types':
         specifier: workspace:*
         version: link:../types

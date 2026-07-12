@@ -1,8 +1,9 @@
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
+import { findProjectRoot } from '@orion/shared';
 import type { AgentYield, GenericAgentLike } from '@orion/agent';
-import { costTracker } from '@orion/agent';
+import { costTracker, renderAgentYieldToText } from '@orion/agent';
 import { handleContinueFrontend, resetConversation } from './continue-cmd.js';
 import { handleBtwAsync } from './btw-cmd.js';
 import { handleReviewFrontend } from './review-cmd.js';
@@ -16,6 +17,7 @@ import {
 } from './history-utils.js';
 export { costTracker } from '@orion/agent';
 export { handleBtwAsync, handleReviewFrontend };
+export { handleContinueFrontend, resetConversation } from './continue-cmd.js';
 export { loadMykey, projectRootFrom } from '@orion/shared';
 export { createWebhookServer } from './gateway-utils.js';
 
@@ -34,18 +36,10 @@ export const HELP_COMMANDS: Array<[string, string]> = [
   ['/cost', '查看本次 token 消耗'],
 ];
 
-export const TELEGRAM_MENU_COMMANDS: Array<[string, string]> = [
-  ['help', '显示帮助'],
-  ['status', '查看状态'],
-  ['stop', '停止当前任务'],
-  ['new', '开启新对话并清空当前上下文'],
-  ['restore', '恢复上次对话历史'],
-  ['continue', '列出可恢复会话；/continue n 恢复第 n 个'],
-  ['btw', '临时插问主 agent 进展，不打断主线'],
-  ['review', 'in-session code review；/review scope 指定范围'],
-  ['llm', '查看模型列表；/llm n 切换到指定模型'],
-  ['cost', '查看本次 token 消耗'],
-];
+export const TELEGRAM_MENU_COMMANDS: Array<[string, string]> = HELP_COMMANDS.map(([cmd, desc]) => [
+  cmd.replace(/^\//, ''),
+  desc,
+]);
 
 export function buildHelpText(commands = HELP_COMMANDS): string {
   return '📖 命令列表:\n' + commands.map(([cmd, desc]) => `${cmd} - ${desc}`).join('\n');
@@ -54,14 +48,7 @@ export function buildHelpText(commands = HELP_COMMANDS): string {
 export const HELP_TEXT = buildHelpText();
 export const FILE_HINT = 'If you need to show files to user, use [FILE:filepath] in your response.';
 
-const TAG_PATS = ['thinking', 'summary', 'tool_use', 'file_content'].map(
-  (tag) => new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g')
-);
-
 export function cleanReply(text: string): string {
-  for (const pat of TAG_PATS) {
-    text = text.replace(pat, '');
-  }
   return text.replace(/\n{3,}/g, '\n\n').trim() || '...';
 }
 
@@ -93,9 +80,11 @@ export interface SessionInfo {
   rounds: number;
 }
 
+const projectRoot = findProjectRoot();
+
 const RESTORE_GLOBS = [
-  path.join(process.cwd(), 'temp', 'model_responses', 'model_responses_*.txt'),
-  path.join(process.cwd(), 'temp', 'model_responses_*.txt'),
+  path.join(projectRoot, 'temp', 'model_responses', 'model_responses_*.txt'),
+  path.join(projectRoot, 'temp', 'model_responses_*.txt'),
 ];
 
 function restoreNativeHistory(content: string): string[] {
@@ -196,7 +185,16 @@ export function publicAccess(allowed: Set<string> | string[] | undefined): boole
 
 export function toAllowedSet(value: unknown): Set<string> {
   if (value == null) return new Set();
-  const arr = typeof value === 'string' ? [value] : Array.isArray(value) ? value : [];
+  let arr: unknown[];
+  if (typeof value === 'string') {
+    arr = [value];
+  } else if (value instanceof Set) {
+    arr = [...value];
+  } else if (Array.isArray(value)) {
+    arr = value;
+  } else {
+    arr = [];
+  }
   return new Set(arr.map((x) => String(x).trim()).filter(Boolean));
 }
 
@@ -264,7 +262,7 @@ export class AgentChatMixin {
     throw new Error('Not implemented');
   }
 
-  handleWebhook(_body: Record<string, unknown>): void {
+  handleWebhook(_body: Record<string, unknown>, _rawBody?: string, _headers?: Record<string, string | string[] | undefined>): void {
     throw new Error('Not implemented');
   }
 
@@ -340,6 +338,21 @@ export class AgentChatMixin {
   async runAgent(chatId: string, text: string, ctx?: AgentChatCtx): Promise<void> {
     const state = { running: true };
     this.userTasks.set(chatId, state);
+    let thoughtBuf = '';
+    let hasThought = false;
+    const showThinking = process.env.ORION_CLI_THINKING !== 'false';
+    const flushThought = async () => {
+      if (!hasThought) return;
+      const body = thoughtBuf.trim();
+      if (body) {
+        for (const part of this.splitText(body, this.splitLimit)) {
+          await this.sendText(chatId, `[思考] ${part}`, ctx);
+        }
+      }
+      thoughtBuf = '';
+      hasThought = false;
+    };
+
     try {
       await this.sendText(chatId, '思考中...', ctx);
       const dq = this.agent.putTask(`${FILE_HINT}\n\n${text}`, this.source);
@@ -347,17 +360,27 @@ export class AgentChatMixin {
       while (state.running) {
         const item = await dq.get(true, 3);
         if (!item) {
-          if (this.agent.isRunning && Date.now() - lastPing > this.pingInterval * 1000) {
+          if (Date.now() - lastPing > this.pingInterval * 1000) {
             await this.sendText(chatId, '⏳ 还在处理中，请稍等...', ctx);
             lastPing = Date.now();
           }
           continue;
         }
         if (item.next) {
-          const rendered = renderAgentYieldToText(item.next);
-          if (rendered) await this.sendText(chatId, rendered, ctx);
+          const y: AgentYield = item.next;
+          if (y.kind === 'thought') {
+            if (showThinking) {
+              hasThought = true;
+              thoughtBuf += y.content;
+            }
+          } else {
+            await flushThought();
+            const rendered = renderAgentYieldToText(y);
+            if (rendered) await this.sendText(chatId, rendered, ctx);
+          }
         }
         if (item.done) {
+          await flushThought();
           await this.sendDone(chatId, item.done, ctx);
           break;
         }
@@ -369,22 +392,5 @@ export class AgentChatMixin {
     } finally {
       this.userTasks.delete(chatId);
     }
-  }
-}
-
-function renderAgentYieldToText(y: AgentYield): string {
-  switch (y.kind) {
-    case 'text':
-      return y.content;
-    case 'thought':
-      return '';
-    case 'tool_call':
-      return `\n🛠️ ${y.toolName}\n`;
-    case 'tool_result':
-      return y.status === 'error' ? '[error]\n' : '';
-    case 'error':
-      return `\n!!!Error: ${y.message}\n`;
-    default:
-      return '';
   }
 }

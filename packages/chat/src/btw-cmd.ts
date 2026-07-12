@@ -1,4 +1,5 @@
 import type { Message } from '@orion/agent';
+import type { BaseSession, LLMResponse, LLMStreamDelta } from '@orion/types';
 import type { GenericAgentLike } from './index.js';
 
 const WRAPPER_ZH = `<system-reminder>
@@ -60,24 +61,49 @@ async function snapshotHistory(backend: { history: Message[]; lock?: unknown }):
 }
 
 async function askSide(agent: GenericAgentLike, question: string, deadline: number): Promise<string> {
-  const backend = (agent.client as unknown as { backend: { history: Message[]; makeMessages?: (msgs: Message[]) => Message[]; rawAsk: (msgs: Message[]) => AsyncGenerator<string, unknown, unknown> } }).backend;
+  const backend = agent.client.backend as BaseSession;
   const userMsg: Message = {
     role: 'user',
     content: [{ type: 'text', text: wrapper().replace('{question}', question) }],
   };
   const history = await snapshotHistory(backend);
-  const msgs = backend.makeMessages ? backend.makeMessages([...history, userMsg]) : [...history, userMsg];
+  const msgs = backend.makeMessages([...history, userMsg]);
   const gen = backend.rawAsk(msgs);
   let text = '';
+  let timedOut = false;
   try {
     while (Date.now() < deadline) {
-      const chunk = await gen.next();
+      const remaining = deadline - Date.now();
+      const chunk = await Promise.race([
+        gen.next(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('/btw timeout')), Math.max(1, remaining))
+        ),
+      ]);
       if (chunk.done) break;
-      if (typeof chunk.value === 'string') text += chunk.value;
+      const value = chunk.value as LLMStreamDelta;
+      if (value.kind === 'text') text += value.delta;
+      else if (value.kind === 'thinking') text += value.delta;
     }
-    if (Date.now() >= deadline) text += '\n\n⚠️ /btw 超时，仅返回部分回复。';
+    if (Date.now() >= deadline) {
+      timedOut = true;
+      text += '\n\n⚠️ /btw 超时，仅返回部分回复。';
+    }
   } catch (e) {
-    return `❌ /btw 失败: ${e instanceof Error ? e.message : String(e)}`;
+    if (timedOut || (e instanceof Error && e.message === '/btw timeout')) {
+      text += '\n\n⚠️ /btw 超时，仅返回部分回复。';
+    } else {
+      return `❌ /btw 失败: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  } finally {
+    if (timedOut) {
+      try {
+        const dummyResponse: LLMResponse = { content: '', thinking: '', tool_calls: [], raw: '', stop_reason: 'stop' };
+        await gen.return(dummyResponse);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
   }
   return text;
 }

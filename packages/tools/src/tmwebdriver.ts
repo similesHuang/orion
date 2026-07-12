@@ -122,7 +122,11 @@ export class TMWebDriver {
 
   private parseId(sid: string | number | undefined): number | undefined {
     if (sid === undefined) return undefined;
-    const n = typeof sid === 'number' ? sid : parseInt(String(sid).replace(/^tab_/, ''), 10);
+    if (typeof sid === 'number') return sid;
+    const s = String(sid);
+    const m = s.match(/^(?:tab_)?(\d+)$/);
+    if (!m) return undefined;
+    const n = parseInt(m[1], 10);
     return isNaN(n) ? undefined : n;
   }
 
@@ -188,7 +192,7 @@ export class TMWebDriver {
     if (!res || res.ok === false) {
       throw new Error(typeof res?.error === 'string' ? res.error : JSON.stringify(res?.error ?? 'scan failed'));
     }
-    const target = this._tabs.find((t) => t.id === String(tabId)) || this._tabs[0];
+    const target = this._tabs.find((t) => this.parseId(t.id) === tabId) || this._tabs[0];
     const content = String(res.data ?? '');
     return {
       url: target?.url ?? '',
@@ -230,6 +234,7 @@ export class TMWebDriver {
       if (this.socket === ws) {
         this.socket = undefined;
         this.ready = false;
+        this.rejectAll(new Error('Extension disconnected'));
       }
     });
     ws.on('error', (err) => {

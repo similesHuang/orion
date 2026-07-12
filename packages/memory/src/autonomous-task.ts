@@ -25,7 +25,7 @@ export function getTodo(): string {
 export function getHistory(n = 20): string {
   if (!fs.existsSync(historyFile)) return `[autonomous_task] history.txt 不存在，路径: ${historyFile}`;
   const lines = fs.readFileSync(historyFile, 'utf-8').split('\n');
-  return lines.slice(0, n).join('\n');
+  return lines.slice(-n).join('\n');
 }
 
 export function setTodoPath(): string {

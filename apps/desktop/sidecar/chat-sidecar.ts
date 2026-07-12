@@ -24,6 +24,7 @@ interface BackendSnapshot {
 
 interface ActiveRequestState {
   running: boolean
+  agent?: GenericAgent
 }
 
 interface GatewayDiagnostic {
@@ -157,21 +158,51 @@ function present(value: unknown): boolean {
   return String(value ?? '').trim().length > 0
 }
 
-function summarizeToolResult(content: unknown): string {
-  if (content == null) return ''
+function summarizeToolResult(toolName: string, content: unknown): string {
+  const prefix = `[${toolName}] `
+  if (content == null) return prefix
+
+  // Prefer structured fields when available; tool handlers normally return objects.
+  if (typeof content === 'object') {
+    const obj = content as Record<string, unknown>
+    if (toolName === 'code_run') {
+      const exitCode = obj.exit_code ?? '?'
+      const stdout = typeof obj.stdout === 'string' ? obj.stdout : ''
+      const summary = stdout.length > 200 ? `${stdout.slice(0, 200)} ...` : stdout
+      return `${prefix}exit=${exitCode} ${summary}`
+    }
+    if (toolName === 'file_write' || toolName === 'file_patch') {
+      const bytes = typeof obj.writed_bytes === 'number' ? obj.writed_bytes : '?'
+      return `${prefix}${bytes} bytes`
+    }
+    const raw = JSON.stringify(content)
+    return raw.length > 240 ? `${prefix}${raw.slice(0, 240)}...` : `${prefix}${raw}`
+  }
+
   if (typeof content === 'string') {
     const clean = content.replace(/\s+/g, ' ').trim()
-    if (!clean) return ''
-    if (/^error[:\s]/i.test(clean)) return clean.slice(0, 240)
-    return clean.length > 240 ? `${clean.slice(0, 240)}...` : clean
+    if (!clean) return prefix
+    if (/^error[:\s]/i.test(clean)) return `${prefix}${clean.slice(0, 240)}`
+    if (toolName === 'file_read') {
+      const MAX_PREVIEW_CHARS = 4000
+      const rawLines = content.split('\n')
+      const lines = rawLines.length
+      if (content.length <= MAX_PREVIEW_CHARS) {
+        return `${prefix}${lines} lines\n${content}`
+      }
+      let preview = content.slice(0, MAX_PREVIEW_CHARS)
+      const lastNewline = preview.lastIndexOf('\n')
+      if (lastNewline > 0) {
+        preview = preview.slice(0, lastNewline)
+      }
+      const shownLines = preview.split('\n').length
+      return `${prefix}${lines} lines\n${preview}\n... (${lines - shownLines} more lines, ${content.length - preview.length} chars omitted)`
+    }
+    return clean.length > 240 ? `${prefix}${clean.slice(0, 240)}...` : `${prefix}${clean}`
   }
-  if (typeof content === 'number' || typeof content === 'boolean') return String(content)
-  try {
-    const raw = JSON.stringify(content)
-    return raw.length > 240 ? `${raw.slice(0, 240)}...` : raw
-  } catch {
-    return String(content)
-  }
+
+  if (typeof content === 'number' || typeof content === 'boolean') return `${prefix}${String(content)}`
+  return `${prefix}${String(content)}`
 }
 
 function createAgent(llmNo = 0, cwd?: string): GenericAgent {
@@ -403,8 +434,14 @@ function sseEvent(res: http.ServerResponse, eventName: string, data: string): vo
 
 function stopActiveTasks(activeRequests: Map<string, { res: http.ServerResponse; state: ActiveRequestState }>): void {
   if (agent) agent.abort()
-  for (const { state } of activeRequests.values()) {
+  for (const { res, state } of activeRequests.values()) {
     state.running = false
+    state.agent?.abort()
+    try {
+      sseEvent(res, 'stop', JSON.stringify({ reason: 'user_stop' }))
+    } catch {
+      // ignore emit errors on closing responses
+    }
   }
 }
 
@@ -593,8 +630,7 @@ async function main(): Promise<void> {
       }
 
       const originalSnapshot = exportSnapshot(current)
-      rebuildAgent(originalSnapshot, targetCwd)
-      current = getAgent()
+      const requestAgent = restoreSnapshot(originalSnapshot, targetCwd)
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -605,9 +641,9 @@ async function main(): Promise<void> {
 
       const requestId = crypto.randomUUID()
       const requestState: ActiveRequestState = { running: true }
-      const runningStepIds = new Set<string>()
+      const runningStepIds = new Map<string, string>()
 
-      activeRequests.set(requestId, { res, state: requestState })
+      activeRequests.set(requestId, { res, state: { ...requestState, agent: requestAgent } })
 
       req.on('close', () => {
         requestState.running = false
@@ -618,9 +654,18 @@ async function main(): Promise<void> {
         sseEvent(res, eventName, data)
       }
 
+      // Keep-alive to prevent UI from timing out during long tool calls
+      const pingInterval = setInterval(() => {
+        try {
+          res.write(':ping\n\n')
+        } catch {
+          clearInterval(pingInterval)
+        }
+      }, 30000)
+
       void (async () => {
         let fullText = ''
-        const frontend = new SseChatFrontend(current, (eventName, data) => {
+        const frontend = new SseChatFrontend(requestAgent, (eventName, data) => {
           emit(eventName, data)
         })
 
@@ -634,12 +679,15 @@ async function main(): Promise<void> {
               emit('thought', JSON.stringify({ delta: y.content }))
               break
             case 'tool_call':
-              runningStepIds.add(y.id)
+              runningStepIds.set(y.id, y.toolName)
               emit('tool_call', JSON.stringify({ id: y.id, turn: y.turn, toolName: y.toolName, args: y.args }))
               break
             case 'tool_result':
-              runningStepIds.delete(y.id)
-              emit('tool_result', JSON.stringify({ id: y.id, status: y.status, summary: summarizeToolResult(y.content) }))
+              {
+                const toolName = runningStepIds.get(y.id) || 'tool'
+                runningStepIds.delete(y.id)
+                emit('tool_result', JSON.stringify({ id: y.id, status: y.status, summary: summarizeToolResult(toolName, y.content) }))
+              }
               break
             case 'error':
               emit('error', JSON.stringify({ message: y.message }))
@@ -655,7 +703,7 @@ async function main(): Promise<void> {
           }
 
           const prompt = buildPrompt(q)
-          const queue = current.putTask(prompt, 'desktop', targetCwd)
+          const queue = requestAgent.putTask(prompt, 'desktop', targetCwd)
 
           while (requestState.running) {
             const item = await queue.get(true, 3)
@@ -672,12 +720,12 @@ async function main(): Promise<void> {
           emit('error', JSON.stringify({ message }))
           emit('done', JSON.stringify({ text: fullText || message }))
         } finally {
+          clearInterval(pingInterval)
           activeRequests.delete(requestId)
           res.end()
-          if (agent) {
-            rebuildAgent(exportSnapshot(agent))
-          } else {
-            rebuildAgent(originalSnapshot)
+          // Sync any session history changes back to the global agent only when idle
+          if (activeRequests.size === 0) {
+            rebuildAgent(exportSnapshot(requestAgent))
           }
         }
       })()

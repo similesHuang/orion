@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { AgentChatMixin, GenericAgentLike, loadMykey, ensureSingleInstance, requireRuntime, toAllowedSet, createWebhookServer } from '@orion/chat';
 import { GenericAgent } from '@orion/agent';
@@ -43,15 +44,36 @@ class FeishuFrontend extends AgentChatMixin {
     const token = await this.getTenantToken();
     if (!token) return;
     for (const part of this.splitText(content, this.splitLimit)) {
-      await fetch('https://open.feishu.cn/open-apis/im/v1/messages', {
+      const resp = await fetch('https://open.feishu.cn/open-apis/im/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ receive_id: chatId, content: JSON.stringify({ text: part }), msg_type: 'text' }),
       });
+      if (!resp.ok) {
+        console.error(`[Feishu] send message failed: HTTP ${resp.status}`);
+      }
     }
   }
 
-  handleWebhook(body: Record<string, unknown>): void {
+  private verifySignature(body: string, timestamp: string, nonce: string, signature: string): boolean {
+    const payload = `${timestamp}\n${nonce}\n${body}`;
+    const expected = crypto.createHmac('sha256', this.appSecret).update(payload).digest('base64');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    } catch {
+      return false;
+    }
+  }
+
+  handleWebhook(body: Record<string, unknown>, rawBody?: string, headers?: Record<string, string | string[] | undefined>): void {
+    const timestamp = String(headers?.['x-lark-request-timestamp'] || headers?.['X-Lark-Request-Timestamp'] || body?.timestamp || '');
+    const nonce = String(headers?.['x-lark-request-nonce'] || headers?.['X-Lark-Request-Nonce'] || body?.nonce || '');
+    const signature = String(headers?.['x-lark-signature'] || headers?.['X-Lark-Signature'] || '');
+    if (!signature || !this.verifySignature(rawBody || JSON.stringify(body), timestamp, nonce, signature)) {
+      console.error('[Feishu] webhook signature verification failed');
+      throw new Error('Invalid signature');
+    }
+
     const event = (body.event || body) as Record<string, unknown>;
     const senderObj = (event.sender || {}) as Record<string, unknown>;
     const sender = String(senderObj.user_id || event.user_id || '');
@@ -78,6 +100,7 @@ async function main(): Promise<void> {
   agent.verbose = false;
   const frontend = new FeishuFrontend(agent, appId, appSecret, allowed);
   const port = Number(process.env.FEISHU_PORT || 8083);
-  createWebhookServer(frontend, port, '{"challenge":""}');
+  const host = process.env.FEISHU_HOST || '127.0.0.1';
+  createWebhookServer(frontend, port, '{"challenge":""}', host);
 }
 export { main }
