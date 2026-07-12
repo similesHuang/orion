@@ -78,13 +78,7 @@ orion/
 │   │   ├── sidecar/            # Node 辅助脚本（chat-sidecar、desktop-pet）
 │   │   └── src-tauri/          # Rust / Tauri 壳层
 │   └── gateway/                # IM 网关入口
-│       ├── wecom.ts            # 企业微信
-│       ├── telegram.ts         # Telegram
-│       ├── feishu.ts           # 飞书
-│       ├── dingtalk.ts         # 钉钉
-│       ├── qq.ts               # QQ
-│       ├── discord.ts          # Discord
-│       └── wechat.ts           # 微信
+│       └── feishu.ts           # 飞书
 ├── assets/                     # 系统提示词、工具 schema、模板文件
 │   ├── sys_prompt.txt          # 中文系统提示词
 │   ├── sys_prompt_en.txt       # 英文系统提示词
@@ -106,7 +100,6 @@ orion/
 │   └── types/                  # 共享类型定义
 ├── temp/                       # 会话、模型响应、任务文件等临时输出
 ├── .env.example                # 环境变量配置模板
-├── mykey.template.json         # JSON 密钥配置模板
 ├── pnpm-workspace.yaml         # pnpm workspace 配置
 ├── tsconfig.base.json          # 公共 TypeScript 配置
 └── package.json                # monorepo 根配置
@@ -172,8 +165,8 @@ LLM_APIBASE=https://api.kimi.com/coding/
 LLM_MODEL=kimi-k2.7
 ```
 
-> 也可使用 `mykey.json`：`cp mykey.template.json mykey.json`。
-> 配置加载优先级：`.env` > `mykey.json` > `mykey.template.json`。
+> LLM 配置统一走 `.env`。
+> `mykey.json` 仅用于 IM 网关密钥（Bot Token、Secret、allowed_users 等）。
 
 ### 3. 常用命令
 
@@ -193,7 +186,7 @@ pnpm desktop:dev
 # 构建桌面端
 pnpm desktop:build
 
-# 启动 IM 网关（默认企业微信）
+# 启动 IM 网关（默认飞书）
 pnpm gateway
 
 # 启动后台规划守护进程
@@ -241,9 +234,9 @@ pnpm lint
 | CLI 启动 | `apps/cli/src/main.ts` | 极薄，调用 `@orion/agent` 的 `main()` |
 | Agent 核心 | `packages/agent/src/index.ts` | `GenericAgent`、配置加载、系统提示词、任务队列 |
 | Agent 循环 | `packages/agent/src/agent-loop.ts` | `agentRunnerLoop`、工具调用与响应处理 |
-| LLM 客户端 | `packages/llm/src/index.ts` | `OpenAISession`、`AnthropicSession`、`MixinSession`、`ToolClient`/`NativeToolClient` |
+| LLM 客户端 | `packages/llm/src/index.ts` | `OpenAISession`、`AnthropicSession`、`MixinSession`、`NativeToolClient` |
 | 工具导出 | `packages/tools/src/index.ts` | 所有工具能力的统一导出 |
-| IM 网关 | `apps/gateway/src/index.ts` | 根据参数加载不同网关（wecom/telegram/feishu/...） |
+| IM 网关 | `apps/gateway/src/index.ts` | 仅保留飞书网关 |
 | 桌面配置 | `apps/desktop/src-tauri/tauri.conf.json` | 产品名 `Orion`，前端 dev 地址 `http://localhost:5173` |
 
 ---

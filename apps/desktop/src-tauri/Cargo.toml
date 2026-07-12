@@ -30,3 +30,4 @@ tauri-plugin-single-instance = "2"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["net", "time", "io-util"] }
+dunce = "1"

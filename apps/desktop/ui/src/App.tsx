@@ -7,14 +7,39 @@ import {
   useState,
   type FormEvent,
   type ReactElement,
+  type ReactNode,
 } from 'react'
-import { confirm } from '@tauri-apps/plugin-dialog'
-import { motion, AnimatePresence } from 'framer-motion'
+import { confirm, open } from '@tauri-apps/plugin-dialog'
+import { Bubble, Sender, XProvider } from '@ant-design/x'
+import {
+  Badge,
+  Button,
+  Collapse,
+  ConfigProvider,
+  Drawer,
+  Layout,
+  List,
+  Menu,
+  Space,
+  Spin,
+  Tooltip,
+  Typography,
+  theme,
+} from 'antd'
+import {
+  DeleteOutlined,
+  EditOutlined,
+  FolderAddOutlined,
+  FolderOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+} from '@ant-design/icons'
 import {
   GATEWAY_SPECS,
   PRIMARY_MODEL_FIELDS,
   SSE_INACTIVITY_MS,
-  MAX_BUFFER_LEN,
 } from './constants'
 import {
   chatReducer,
@@ -40,17 +65,130 @@ import {
   minimizeWindow,
   toggleMaximizeWindow,
   closeWindow,
+  getGitBranch,
 } from './api'
 import { Markdown } from './markdown'
-import { Timeline } from './timeline'
-import { autoResizeTextarea, createSession, formatTime, formatUpdatedAt, parseListValue, parseSse } from './utils'
+import {
+  createProject,
+  createSession,
+  formatDuration,
+  formatUpdatedAt,
+  parseListValue,
+  parseSse,
+  streamBuffer,
+} from './utils'
 import type {
   DiagnosticsPayload,
   FieldSpec,
   LlmOption,
   SettingsState,
+  TimelineStep,
   UiMessage,
 } from './types'
+
+function ThoughtBubble({ children }: { children: string }): ReactElement {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="thought-bubble">
+      <button className="thought-toggle" onClick={() => setOpen((v) => !v)}>
+        {open ? '隐藏思考' : '思考中…'}
+      </button>
+      {open && (
+        <div className="thought-content">
+          <Typography.Text type="secondary">{children}</Typography.Text>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolGroup({ turn, steps }: { turn: number; steps: TimelineStep[] }): ReactElement {
+  const [open, setOpen] = useState(false)
+  const running = steps.some((s) => s.status === 'running')
+  const done = steps.every((s) => s.status === 'done')
+  const status = running ? 'running' : done ? 'done' : 'error'
+  return (
+    <div className={`tool-group tool-group--${status}`}>
+      <button className="tool-group-toggle" onClick={() => setOpen((v) => !v)}>
+        {running && <Spin size="small" style={{ marginRight: 8 }} />}
+        Turn {turn} · {steps.length} 次操作 · {status}
+      </button>
+      {open && (
+        <div className="tool-group-body">
+          {steps.map((step) => (
+            <div key={step.id} className="tool-step">
+              <Space size={8}>
+                <Typography.Text code>{step.toolName}</Typography.Text>
+                <Typography.Text type="secondary">{formatDuration(step.durationMs)}</Typography.Text>
+              </Space>
+              <div>
+                <Typography.Text type="secondary">参数：</Typography.Text>
+                <Typography.Text code>{JSON.stringify(step.args)}</Typography.Text>
+              </div>
+              {step.resultSummary && (
+                <div>
+                  <Typography.Text type="secondary">结果：</Typography.Text>
+                  <Typography.Text>{step.resultSummary}</Typography.Text>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderMessageContent(message: UiMessage, isStreaming: boolean): ReactNode {
+  type Group =
+    | { kind: 'text'; content: string }
+    | { kind: 'thought'; content: string }
+    | { kind: 'tool_group'; turn: number; steps: TimelineStep[] }
+
+  const groups: Group[] = []
+  for (const unit of message.units) {
+    if (unit.kind === 'text') {
+      const last = groups[groups.length - 1]
+      if (last && last.kind === 'text') {
+        last.content += unit.content
+      } else {
+        groups.push({ kind: 'text', content: unit.content })
+      }
+    } else if (unit.kind === 'thought') {
+      const last = groups[groups.length - 1]
+      if (last && last.kind === 'thought') {
+        last.content += unit.content
+      } else {
+        groups.push({ kind: 'thought', content: unit.content })
+      }
+    } else if (unit.kind === 'tool') {
+      const last = groups[groups.length - 1]
+      if (last && last.kind === 'tool_group' && last.turn === unit.step.turn) {
+        last.steps.push(unit.step)
+      } else {
+        groups.push({ kind: 'tool_group', turn: unit.step.turn, steps: [unit.step] })
+      }
+    }
+  }
+
+  if (groups.length === 0 && message.text) {
+    groups.push({ kind: 'text', content: message.text })
+  }
+
+  return (
+    <>
+      {groups.map((group, idx) => {
+        if (group.kind === 'text') {
+          return <Markdown key={`text-${idx}`} text={group.content} isStreaming={isStreaming} />
+        }
+        if (group.kind === 'thought') {
+          return <ThoughtBubble key={`thought-${idx}`}>{group.content}</ThoughtBubble>
+        }
+        return <ToolGroup key={`tool-${idx}`} turn={group.turn} steps={group.steps} />
+      })}
+    </>
+  )
+}
 
 function settingsReducer(
   state: SettingsState,
@@ -139,7 +277,6 @@ export function App(): ReactElement {
   const sseTimeoutRef = useRef<number | null>(null)
   const healthTimerRef = useRef<number | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const streamingRef = useRef(streaming)
   const activeSessionIdRef = useRef(chatState.activeSessionId)
@@ -157,8 +294,29 @@ export function App(): ReactElement {
     return found ?? chatState.sessions[0] ?? createSession()
   }, [chatState])
 
-  const sessionsSorted = useMemo(
-    () => [...chatState.sessions].sort((left, right) => right.updatedAt - left.updatedAt),
+  const currentProject = useMemo(
+    () => chatState.projects.find((project) => project.id === session?.projectId) ?? null,
+    [chatState.projects, session]
+  )
+
+  const projectsSorted = useMemo(
+    () => [...chatState.projects].sort((left, right) => right.updatedAt - left.updatedAt),
+    [chatState.projects]
+  )
+
+  const standaloneSessions = useMemo(
+    () =>
+      chatState.sessions
+        .filter((item) => !item.projectId)
+        .sort((left, right) => right.updatedAt - left.updatedAt),
+    [chatState.sessions]
+  )
+
+  const projectSessions = useCallback(
+    (projectId: string) =>
+      chatState.sessions
+        .filter((item) => item.projectId === projectId)
+        .sort((left, right) => right.updatedAt - left.updatedAt),
     [chatState.sessions]
   )
 
@@ -345,10 +503,6 @@ export function App(): ReactElement {
     }
   }, [chatState])
 
-  useEffect(() => {
-    if (textareaRef.current) autoResizeTextarea(textareaRef.current)
-  }, [session?.draft])
-
   const handleSwitchSession = useCallback(
     async (sessionId: string) => {
       if (streamingRef.current) {
@@ -414,6 +568,100 @@ export function App(): ReactElement {
     }
   }, [addSystemMessage, chatState.sessions, loadModelsAndPing, persistActiveBackendState, port, session, sidecarReady, agentReady])
 
+  const handleCreateProjectSession = useCallback(
+    async (projectId: string) => {
+      if (streamingRef.current) {
+        addSystemMessage('当前正在生成中，请先停止后再新建会话。')
+        return
+      }
+      await persistActiveBackendState()
+      dispatch({ type: 'createSession', projectId })
+      if (port && sidecarReady && agentReady) {
+        await importBackendSnapshot(null)
+        await loadModelsAndPing()
+      }
+    },
+    [addSystemMessage, loadModelsAndPing, persistActiveBackendState, port, sidecarReady, agentReady]
+  )
+
+  const handleDeleteProject = useCallback(
+    async (projectId: string) => {
+      const project = chatState.projects.find((p) => p.id === projectId)
+      if (!project) return
+      const confirmed = await confirm(`删除 Project“${project.name}”？关联会话将变为独立会话。`, {
+        title: '删除 Project',
+        kind: 'warning',
+      })
+      if (!confirmed) return
+      dispatch({ type: 'deleteProject', projectId })
+    },
+    [chatState.projects]
+  )
+
+  const handleRenameProject = useCallback(async (projectId: string) => {
+    const project = chatState.projects.find((p) => p.id === projectId)
+    if (!project) return
+    let nextName: string | null = null
+    try {
+      nextName = window.prompt('输入新的 Project 名', project.name)
+    } catch {
+      addSystemMessage('当前环境不支持系统输入框，请稍后再试。')
+      return
+    }
+    if (!nextName) return
+    dispatch({ type: 'renameProject', projectId, name: nextName })
+  }, [chatState.projects, addSystemMessage])
+
+  const handleToggleExpandProject = useCallback((projectId: string) => {
+    dispatch({ type: 'toggleExpandProject', projectId })
+  }, [])
+
+  const handleUnbindCurrentProject = useCallback(() => {
+    dispatch({ type: 'unbindCurrentProject' })
+  }, [])
+
+  const handleAddProjectDirectory = useCallback(async () => {
+    let selected: string | string[] | null
+    try {
+      selected = await open({ directory: true, multiple: false })
+    } catch (error) {
+      addSystemMessage(`选择目录失败: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const projectPath = Array.isArray(selected) ? selected[0] : selected
+    if (!projectPath) return
+    console.log('[UI] selected project path:', projectPath)
+
+    const existing = chatState.projects.find((p) => p.path === projectPath)
+    if (existing) {
+      console.log('[UI] binding to existing project:', existing.id, existing.path)
+      dispatch({ type: 'bindCurrentProject', projectId: existing.id })
+      return
+    }
+
+    let gitBranch: string | null = null
+    try {
+      gitBranch = await getGitBranch(projectPath)
+    } catch {
+      gitBranch = null
+    }
+    const project = createProject(projectPath, gitBranch)
+    console.log('[UI] creating and binding project:', project.id, project.path)
+    dispatch({ type: 'createProject', project })
+    dispatch({ type: 'bindCurrentProject', projectId: project.id })
+  }, [addSystemMessage, chatState.projects])
+
+  const handleRefreshProjectBranch = useCallback(async (projectId: string) => {
+    const project = chatState.projects.find((p) => p.id === projectId)
+    if (!project) return
+    try {
+      const branch = await getGitBranch(project.path)
+      dispatch({ type: 'setProjectGitBranch', projectId, gitBranch: branch })
+    } catch {
+      dispatch({ type: 'setProjectGitBranch', projectId, gitBranch: null })
+    }
+  }, [chatState.projects])
+
   const handleSend = useCallback(async () => {
     if (!port || streamingRef.current || !session) return
     const text = session.draft.trim()
@@ -439,9 +687,10 @@ export function App(): ReactElement {
     const assistantMessage: UiMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role: 'assistant',
-      text: '思考中…',
+      text: '',
+      thoughts: [],
+      units: [],
       createdAt: Date.now(),
-      timeline: null,
     }
     const currentSessionId = session.id
     const currentMessageId = assistantMessage.id
@@ -450,7 +699,7 @@ export function App(): ReactElement {
       sessionId: currentSessionId,
       role: 'assistant',
       text: assistantMessage.text,
-      extras: { id: currentMessageId, timeline: null },
+      extras: { id: currentMessageId, thoughts: [], units: [] },
     })
     closeStream()
 
@@ -459,17 +708,22 @@ export function App(): ReactElement {
 
     const params = new URLSearchParams()
     if (text) params.set('q', text)
+    if (currentProject) {
+      params.set('cwd', currentProject.path)
+      console.log('[UI] sending with cwd:', currentProject.path)
+    } else {
+      console.log('[UI] sending without cwd, currentProject is null')
+    }
 
-    let buffer = ''
     const resetSseTimeout = () => {
       if (sseTimeoutRef.current !== null) window.clearTimeout(sseTimeoutRef.current)
       sseTimeoutRef.current = window.setTimeout(() => {
-        if (streamingRef.current) {
+        if (streamingRef.current && currentMessageId) {
           dispatch({
-            type: 'updateMessage',
+            type: 'appendText',
             sessionId: currentSessionId,
             id: currentMessageId,
-            patch: { text: buffer || '响应超时，连接已关闭' },
+            delta: '响应超时，连接已关闭',
           })
         }
         closeStream()
@@ -481,12 +735,12 @@ export function App(): ReactElement {
     sourceRef.current = controller
 
     const finishWithError = () => {
-      if (streamingRef.current) {
+      if (streamingRef.current && currentMessageId) {
         dispatch({
-          type: 'updateMessage',
+          type: 'appendText',
           sessionId: currentSessionId,
           id: currentMessageId,
-          patch: { text: buffer || '连接中断' },
+          delta: '连接中断',
         })
       }
       closeStream()
@@ -508,48 +762,68 @@ export function App(): ReactElement {
         }
         resetSseTimeout()
         const reader = response.body.getReader()
-        for await (const event of parseSse(reader)) {
+        for await (const event of streamBuffer(parseSse(reader))) {
           if (sourceRef.current !== controller) break
           resetSseTimeout()
-          if (event.event === 'timeline') {
-            if (!currentMessageId) continue
-            try {
-              const timeline = JSON.parse(event.data) as UiMessage['timeline']
+          if (!currentMessageId) continue
+          try {
+            if (event.event === 'text') {
+              const { delta } = JSON.parse(event.data)
               dispatch({
-                type: 'updateMessage',
+                type: 'appendText',
                 sessionId: currentSessionId,
                 id: currentMessageId,
-                patch: { timeline },
+                delta,
               })
-            } catch {
-              // ignore malformed timeline payloads
-            }
-          } else if (event.event === 'done') {
-            const data = event.data || buffer
-            if (currentMessageId) {
+            } else if (event.event === 'thought') {
+              const { delta } = JSON.parse(event.data)
               dispatch({
-                type: 'updateMessage',
+                type: 'appendThought',
                 sessionId: currentSessionId,
                 id: currentMessageId,
-                patch: { text: data },
+                delta,
               })
-            }
-            streamCompleted = true
-            closeStream()
-            void persistActiveBackendState()
-            void ping()
-            break
-          } else {
-            buffer += event.data
-            if (buffer.length > MAX_BUFFER_LEN) buffer = buffer.slice(-MAX_BUFFER_LEN)
-            if (currentMessageId) {
+            } else if (event.event === 'tool_call') {
+              const { id, turn, toolName, args } = JSON.parse(event.data)
               dispatch({
-                type: 'updateMessage',
+                type: 'addToolUnit',
                 sessionId: currentSessionId,
                 id: currentMessageId,
-                patch: { text: buffer },
+                step: {
+                  id,
+                  toolName,
+                  turn,
+                  args: args ?? {},
+                  status: 'running',
+                  startedAt: Date.now(),
+                },
               })
+            } else if (event.event === 'tool_result') {
+              const { id, status, summary } = JSON.parse(event.data)
+              dispatch({
+                type: 'updateToolUnit',
+                sessionId: currentSessionId,
+                messageId: currentMessageId,
+                id,
+                patch: { status, resultSummary: summary },
+              })
+            } else if (event.event === 'error') {
+              const { message } = JSON.parse(event.data)
+              dispatch({
+                type: 'appendText',
+                sessionId: currentSessionId,
+                id: currentMessageId,
+                delta: `\n\`\`\`\n${message}\n\`\`\``,
+              })
+            } else if (event.event === 'done') {
+              streamCompleted = true
+              closeStream()
+              void persistActiveBackendState()
+              void ping()
+              break
             }
+          } catch {
+            // ignore malformed event payloads
           }
         }
         if (!streamCompleted && sourceRef.current === controller) {
@@ -565,10 +839,10 @@ export function App(): ReactElement {
   }, [
     port,
     session,
+    currentProject,
     sidecarReady,
     agentReady,
     addSystemMessage,
-    selectedLlmLabel,
     closeStream,
     dispatch,
     persistActiveBackendState,
@@ -790,213 +1064,404 @@ export function App(): ReactElement {
     )
   }
 
+  const orionTheme = {
+    algorithm: theme.darkAlgorithm,
+    token: {
+      colorBgBase: '#0f1117',
+      colorBgContainer: '#161922',
+      colorBgElevated: '#1c1f2a',
+      colorTextBase: '#f1f5f9',
+      colorTextSecondary: '#64748b',
+      colorBorder: 'rgba(148, 163, 184, 0.12)',
+      colorPrimary: '#f59e0b',
+      colorPrimaryHover: '#fbbf24',
+      colorPrimaryActive: '#d97706',
+      colorLink: '#f59e0b',
+      colorLinkHover: '#fbbf24',
+      borderRadius: 10,
+      fontFamily:
+        '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      fontFamilyCode: '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
+    },
+    components: {
+      Button: {
+        colorPrimaryBg: '#f59e0b',
+        colorPrimaryText: '#0f1117',
+      },
+      Badge: {
+        colorInfo: '#3b82f6',
+      },
+    },
+  }
+
   return (
-    <div className="shell">
-      <div className="ambient ambient-a" />
-      <div className="ambient ambient-b" />
-      <div className="chat-layout">
-        <aside className="chat-sidebar">
-          <div className="sidebar-brand">
-            <div className="brand-mark">O</div>
-            <div className="brand-text">
-              <div className="brand-name">Orion</div>
-              <div className="brand-tag">本地 Agent</div>
-            </div>
-          </div>
-
-          <div className="sidebar-card sessions-card">
-            <div className="card-header">
-              <span className="card-title">会话</span>
-              <div className="header-actions">
-                <button className="icon-btn" title="新建会话" onClick={handleCreateSession}>+</button>
-                <button className="icon-btn" title="重命名" onClick={handleRenameSession}>✎</button>
-                <button className="icon-btn danger" title="删除当前会话" onClick={handleDeleteSession}>🗑</button>
+    <ConfigProvider theme={orionTheme}>
+      <XProvider>
+        <Layout className="shell">
+          <div className="ambient ambient-a" />
+          <div className="ambient ambient-b" />
+          <Layout className="chat-layout">
+            <Layout.Sider className="chat-sidebar" width={260}>
+            <div className="sidebar-brand">
+              <div className="brand-mark" aria-hidden="true">
+                <span className="brand-star brand-star--a" />
+                <span className="brand-star brand-star--b" />
+                <span className="brand-star brand-star--c" />
+                <span className="brand-star brand-star--d" />
+                <span className="brand-orbit" />
+              </div>
+              <div className="brand-text">
+                <Typography.Text className="brand-name">Orion</Typography.Text>
+                <Typography.Text className="brand-tag">本地 Agent</Typography.Text>
               </div>
             </div>
-            <div className="session-list">
-              {sessionsSorted.map((item) => (
+
+            <Space className="sidebar-toolbar" size={4}>
+              <Tooltip title="新建独立会话">
+                <Button type="text" size="small" icon={<PlusOutlined />} onClick={handleCreateSession} />
+              </Tooltip>
+              <Tooltip title="添加 Project 目录">
+                <Button type="text" size="small" icon={<FolderAddOutlined />} onClick={() => void handleAddProjectDirectory()} />
+              </Tooltip>
+              <Tooltip title="设置">
+                <Button type="text" size="small" icon={<SettingOutlined />} onClick={() => setSettings({ open: true })} />
+              </Tooltip>
+            </Space>
+
+            <div className="sidebar-scroll">
+              {projectsSorted.length > 0 && (
+                <div className="sidebar-section">
+                  <Typography.Text className="sidebar-section-title">Projects</Typography.Text>
+                  <Collapse
+                    bordered={false}
+                    activeKey={chatState.expandedProjectIds}
+                    onChange={(keys) => {
+                      const opened = Array.isArray(keys) ? keys : [keys]
+                      const changed = projectsSorted.find((p) =>
+                        opened.includes(p.id)
+                          ? !chatState.expandedProjectIds.includes(p.id)
+                          : chatState.expandedProjectIds.includes(p.id)
+                      )
+                      if (changed) handleToggleExpandProject(changed.id)
+                    }}
+                    expandIcon={({ isActive }) => (
+                      <span className={`collapse-arrow ${isActive ? 'active' : ''}`}>▸</span>
+                    )}
+                    items={projectsSorted.map((project) => {
+                      const sessionsOfProject = projectSessions(project.id)
+                      return {
+                        key: project.id,
+                        label: (
+                          <div className="project-collapse-header">
+                            <Space size={4}>
+                              <FolderOutlined className="project-icon" />
+                              <span className="project-name-text">{project.name}</span>
+                              {project.gitBranch && (
+                                <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: '#3b82f6' }} />
+                              )}
+                            </Space>
+                            <Space size={2} className="project-header-actions">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ReloadOutlined />}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleRefreshProjectBranch(project.id)
+                                }}
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<EditOutlined />}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleRenameProject(project.id)
+                                }}
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleCreateProjectSession(project.id)
+                                }}
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleDeleteProject(project.id)
+                                }}
+                              />
+                            </Space>
+                          </div>
+                        ),
+                        children: (
+                          <List
+                            size="small"
+                            dataSource={sessionsOfProject}
+                            locale={{ emptyText: '该 Project 下暂无会话' }}
+                            renderItem={(item) => (
+                              <List.Item
+                                key={item.id}
+                                className={`session-list-item ${item.id === session?.id ? 'active' : ''}`}
+                                onClick={() => void handleSwitchSession(item.id)}
+                              >
+                                <List.Item.Meta
+                                  title={<span className="session-item-title">{item.title}</span>}
+                                  description={<span className="session-item-desc">{sessionPreview(item)}</span>}
+                                />
+                                <span className="session-item-time">{formatUpdatedAt(item.updatedAt)}</span>
+                              </List.Item>
+                            )}
+                          />
+                        ),
+                      }
+                    })}
+                  />
+                </div>
+              )}
+
+              <div className="sidebar-section">
+                <Typography.Text className="sidebar-section-title">独立会话</Typography.Text>
+                <Menu
+                  mode="inline"
+                  selectedKeys={session?.projectId ? [] : [session?.id]}
+                  items={standaloneSessions.map((item) => ({
+                    key: item.id,
+                    icon: <MessageOutlined />,
+                    label: (
+                      <div className="standalone-session-item" onClick={() => void handleSwitchSession(item.id)}>
+                        <span className="session-item-title">{item.title}</span>
+                        <span className="session-item-time">{formatUpdatedAt(item.updatedAt)}</span>
+                      </div>
+                    ),
+                  }))}
+                />
+              </div>
+            </div>
+
+            <div className="sidebar-footer">
+              <Typography.Text type="secondary" className="current-session-label">当前会话</Typography.Text>
+              <Typography.Text className="current-session-name" ellipsis>{session?.title || '未命名会话'}</Typography.Text>
+              <Space size={4}>
+                <Tooltip title="重命名">
+                  <Button type="text" size="small" icon={<EditOutlined />} onClick={() => void handleRenameSession()} />
+                </Tooltip>
+                <Tooltip title="删除">
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => void handleDeleteSession()} />
+                </Tooltip>
+              </Space>
+            </div>
+          </Layout.Sider>
+
+          <Layout.Content className="chat-main">
+            <header className="window-bar">
+              <div className="window-controls">
                 <button
-                  key={item.id}
-                  className={`session-item ${item.id === session?.id ? 'active' : ''}`}
-                  onClick={() => void handleSwitchSession(item.id)}
+                  className="window-btn"
+                  title="最小化"
+                  aria-label="最小化"
+                  onClick={() => void minimizeWindow()}
                 >
-                  <div className="session-title">{item.title}</div>
-                  <div className="session-preview">{sessionPreview(item)}</div>
-                  <div className="session-time">{formatUpdatedAt(item.updatedAt)}</div>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <rect x="1" y="5.5" width="10" height="1" rx="0.5" fill="currentColor" />
+                  </svg>
                 </button>
-              ))}
-            </div>
-          </div>
+                <button
+                  className="window-btn"
+                  title={maximized ? '还原' : '最大化'}
+                  aria-label={maximized ? '还原' : '最大化'}
+                  onClick={async () => {
+                    try {
+                      const next = await toggleMaximizeWindow()
+                      setMaximized(next)
+                    } catch (error) {
+                      addSystemMessage(`窗口缩放失败: ${error instanceof Error ? error.message : String(error)}`)
+                    }
+                  }}
+                >
+                  {maximized ? (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <path
+                        d="M3.5 1.5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Z"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                      />
+                      <path
+                        d="M2 3.5V9a1 1 0 0 0 1 1h5.5"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <rect
+                        x="1.5"
+                        y="1.5"
+                        width="9"
+                        height="9"
+                        rx="1"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                      />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  className="window-btn close"
+                  title="关闭"
+                  aria-label="关闭"
+                  onClick={() => void closeWindow()}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path
+                      d="M2.5 2.5 9.5 9.5M9.5 2.5 2.5 9.5"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </header>
 
-          <div className="sidebar-actions">
-            <button className="action-btn" onClick={() => setSettings({ open: true })}>
-              <span className="action-icon">⚙</span>
-              <span>设置</span>
-            </button>
-          </div>
-        </aside>
-
-        <div className="chat-main">
-          <header className="window-bar">
-            <div className="window-controls">
-              <button className="window-btn" title="最小化" onClick={() => void minimizeWindow()}>-</button>
-              <button
-                className="window-btn"
-                title="最大化"
-                onClick={async () => {
-                  try {
-                    const next = await toggleMaximizeWindow()
-                    setMaximized(next)
-                  } catch (error) {
-                    addSystemMessage(`窗口缩放失败: ${error instanceof Error ? error.message : String(error)}`)
-                  }
+            <section ref={messagesRef} className="messages">
+              {session && session.messages.length === 0 && (
+                <div className="empty-state">
+                  <div className="empty-constellation" aria-hidden="true">
+                    <span className="empty-star empty-star--1" />
+                    <span className="empty-star empty-star--2" />
+                    <span className="empty-star empty-star--3" />
+                    <span className="empty-star empty-star--4" />
+                    <span className="empty-star empty-star--5" />
+                    <span className="empty-star empty-star--6" />
+                    <span className="empty-line empty-line--1" />
+                    <span className="empty-line empty-line--2" />
+                    <span className="empty-line empty-line--3" />
+                  </div>
+                  <h2>设定航线</h2>
+                  <p>输入任务、命令或问题，Orion 会在本地 sidecar 中执行。会话会绑定到当前 Project 目录。</p>
+                </div>
+              )}
+              <Bubble.List
+                rootClassName="orion-bubble-list"
+                role={{
+                  user: { placement: 'end', variant: 'shadow' },
+                  ai: { placement: 'start', variant: 'borderless' },
+                  system: { placement: 'start', variant: 'borderless' },
                 }}
-              >
-                {maximized ? '◱' : '+'}
-              </button>
-              <button className="window-btn close" title="关闭" onClick={() => void closeWindow()}>x</button>
-            </div>
-          </header>
-
-          <section ref={messagesRef} className="messages">
-            {session && session.messages.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-logo">O</div>
-                <h2>有什么我能帮你的吗</h2>
-                <p>直接输入任务、命令或问题，Orion 会在本地 sidecar 中执行。</p>
-              </div>
-            )}
-            <AnimatePresence initial={false}>
-              {session?.messages.map((message) => (
-                <motion.article
-                  key={message.id}
-                  className={`msg ${message.role}`}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  <div className="msg-meta">
-                    <span className="msg-role">
-                      {message.role === 'user' ? '你' : message.role === 'assistant' ? 'Orion' : '系统'}
-                    </span>
-                    <time className="msg-time">{formatTime(message.createdAt)}</time>
-                  </div>
-                  <div className="bubble">
-                    <Markdown text={message.text} isStreaming={streaming && message.id === streamingMessageId} />
-                  </div>
-                  {message.role === 'assistant' && <Timeline timeline={message.timeline} />}
-                </motion.article>
-              ))}
-            </AnimatePresence>
-          </section>
-
-          <div className="input-area">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              placeholder="输入任务、命令或问题"
-              autoComplete="off"
-              disabled={streaming || !sidecarReady}
-              value={session?.draft || ''}
-              onChange={(event) => {
-                if (!session) return
-                dispatch({ type: 'setDraft', sessionId: session.id, draft: event.target.value })
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  void handleSend()
+                items={
+                  session?.messages.map((message) => {
+                    const isStreamingMessage = streaming && message.id === streamingMessageId
+                    return {
+                      key: message.id,
+                      role: message.role === 'assistant' ? 'ai' : message.role,
+                      content: message.text,
+                      contentRender: () => renderMessageContent(message, isStreamingMessage),
+                    }
+                  }) ?? []
                 }
-              }}
-            />
-            <div className="input-toolbar">
-              <div className="composer-model">
-                <select
-                  className="model-select"
-                  value={llmOptions.find((option) => option.current)?.idx ?? ''}
-                  onChange={handleLlmChange}
-                  disabled={!agentReady || llmOptions.length === 0}
-                >
-                  {llmOptions.length === 0 && <option value="">未加载</option>}
-                  {llmOptions.map((option) => (
-                    <option key={option.idx} value={option.idx}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                className={`send-btn ${streaming ? 'hidden' : ''}`}
-                title="发送"
-                onClick={() => void handleSend()}
-                disabled={streaming || !sidecarReady}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"></line>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                </svg>
-              </button>
-              <button
-                className={`stop-btn ${streaming ? '' : 'hidden'}`}
-                title="停止"
-                onClick={() => void handleStop()}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div className="composer-hint">
-            {!sidecarReady
-              ? 'sidecar 启动中或连接异常，请等待或重启桌面端'
-              : streaming
-                ? '生成中，可点击停止按钮中断'
-                : 'Enter 换行，Cmd/Ctrl + Enter 发送'}
-          </div>
-        </div>
-      </div>
+              />
+            </section>
 
-      <div className={`settings-overlay ${settings.open ? '' : 'hidden'}`}>
-        <div className="settings-backdrop" onClick={() => setSettings({ open: false })} />
-        <section className="settings-panel">
-          <header className="settings-header">
+            <div className="composer-area">
+              <Sender
+                rootClassName="orion-sender"
+                value={session?.draft || ''}
+                onChange={(value) => {
+                  if (!session) return
+                  dispatch({ type: 'setDraft', sessionId: session.id, draft: value })
+                }}
+                onSubmit={() => void handleSend()}
+                onCancel={handleStop}
+                loading={streaming}
+                disabled={!sidecarReady}
+                submitType="enter"
+                placeholder={sidecarReady ? '输入任务、命令或问题' : 'sidecar 启动中…'}
+                footer={
+                  <div className="project-binding-bar">
+                    <Space>
+                      {currentProject ? (
+                        <>
+                          <span>📁 {currentProject.name}</span>
+                          {currentProject.gitBranch && <Badge count={currentProject.gitBranch} color="blue" />}
+                          <Button size="small" onClick={handleUnbindCurrentProject}>解除绑定</Button>
+                        </>
+                      ) : (
+                        <Button size="small" onClick={() => void handleAddProjectDirectory()}>
+                          + 添加 Project 目录
+                        </Button>
+                      )}
+                      <select
+                        className="model-select"
+                        value={llmOptions.find((option) => option.current)?.idx ?? ''}
+                        onChange={handleLlmChange}
+                        disabled={!agentReady || llmOptions.length === 0}
+                      >
+                        {llmOptions.length === 0 && <option value="">未加载</option>}
+                        {llmOptions.map((option) => (
+                          <option key={option.idx} value={option.idx}>{option.label}</option>
+                        ))}
+                      </select>
+                    </Space>
+                  </div>
+                }
+              />
+            </div>
+          </Layout.Content>
+        </Layout>
+
+        <Drawer
+          title={
             <div>
               <div className="eyebrow settings-eyebrow">Desktop Settings</div>
-              <h2>模型配置、网关配置与运行诊断</h2>
-              <p className="settings-copy">
+              <Typography.Title level={4} style={{ margin: 0 }}>模型配置、网关配置与运行诊断</Typography.Title>
+              <Typography.Text type="secondary">
                 直接在桌面端维护 <code>.env</code>、<code>mykey.json</code>，并查看 sidecar 当前诊断状态。
-              </p>
+              </Typography.Text>
             </div>
-            <div className="settings-actions">
-              <div className="settings-state-label">{settingsStateLabel}</div>
-              <button
-                className="mini-btn"
-                onClick={() => void loadSettings(true)}
+          }
+          placement="right"
+          width={760}
+          open={settings.open}
+          onClose={() => setSettings({ open: false })}
+          extra={
+            <Space>
+              <span className="settings-state-label">{settingsStateLabel}</span>
+              <Button onClick={() => void loadSettings(true)} disabled={settings.loading || settings.saving || !port}>刷新</Button>
+            </Space>
+          }
+          footer={
+            <div className="drawer-footer">
+              <Typography.Text type="secondary">
+                {settings.error
+                  ? `加载失败: ${settings.error}`
+                  : settings.saving
+                    ? '正在写回 .env 与 mykey.json...'
+                    : settings.dirty
+                      ? '存在未保存更改。保存后会按当前会话快照重建 agent。'
+                      : '保存后 sidecar 会按当前会话快照重建 agent。'}
+              </Typography.Text>
+              <Button
+                type="primary"
+                onClick={() => void handleSaveSettings()}
                 disabled={settings.loading || settings.saving || !port}
-              >刷新</button>
-              <button className="mini-btn" onClick={() => setSettings({ open: false })}>关闭</button>
+              >保存配置</Button>
             </div>
-          </header>
+          }
+        >
           <div className="settings-body">{renderSettingsBody()}</div>
-          <footer className="settings-footer">
-            <p className="settings-footer-note">
-              {settings.error
-                ? `加载失败: ${settings.error}`
-                : settings.saving
-                  ? '正在写回 .env 与 mykey.json...'
-                  : settings.dirty
-                    ? '存在未保存更改。保存后会按当前会话快照重建 agent。'
-                    : '保存后 sidecar 会按当前会话快照重建 agent。'}
-            </p>
-            <button
-              className="primary-btn"
-              onClick={() => void handleSaveSettings()}
-              disabled={settings.loading || settings.saving || !port}
-            >保存配置</button>
-          </footer>
-        </section>
-      </div>
-    </div>
+        </Drawer>
+      </Layout>
+      </XProvider>
+    </ConfigProvider>
   )
 }
 
@@ -1004,8 +1469,6 @@ function renderDiagnostics(diagnostics: DiagnosticsPayload): ReactElement {
   const fileRows = [
     ['.env', diagnostics.files.envExists ? diagnostics.files.envPath : `${diagnostics.files.envPath} (不存在)`],
     ['.env.example', diagnostics.files.envExampleExists ? diagnostics.files.envExamplePath : `${diagnostics.files.envExamplePath} (不存在)`],
-    ['mykey.json', diagnostics.files.mykeyExists ? diagnostics.files.mykeyPath : `${diagnostics.files.mykeyPath} (不存在)`],
-    ['mykey.template.json', diagnostics.files.mykeyTemplateExists ? diagnostics.files.mykeyTemplatePath : `${diagnostics.files.mykeyTemplatePath} (不存在)`],
   ]
 
   return (

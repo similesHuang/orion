@@ -1,7 +1,7 @@
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
-import type { GenericAgentLike } from '@orion/agent';
+import type { AgentYield, GenericAgentLike } from '@orion/agent';
 import { costTracker } from '@orion/agent';
 import { handleContinueFrontend, resetConversation } from './continue-cmd.js';
 import { handleBtwAsync } from './btw-cmd.js';
@@ -353,6 +353,10 @@ export class AgentChatMixin {
           }
           continue;
         }
+        if (item.next) {
+          const rendered = renderAgentYieldToText(item.next);
+          if (rendered) await this.sendText(chatId, rendered, ctx);
+        }
         if (item.done) {
           await this.sendDone(chatId, item.done, ctx);
           break;
@@ -365,5 +369,22 @@ export class AgentChatMixin {
     } finally {
       this.userTasks.delete(chatId);
     }
+  }
+}
+
+function renderAgentYieldToText(y: AgentYield): string {
+  switch (y.kind) {
+    case 'text':
+      return y.content;
+    case 'thought':
+      return '';
+    case 'tool_call':
+      return `\n🛠️ ${y.toolName}\n`;
+    case 'tool_result':
+      return y.status === 'error' ? '[error]\n' : '';
+    case 'error':
+      return `\n!!!Error: ${y.message}\n`;
+    default:
+      return '';
   }
 }

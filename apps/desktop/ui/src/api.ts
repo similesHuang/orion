@@ -114,3 +114,7 @@ export async function reinjectPrompt(): Promise<void> {
 export async function stopGeneration(): Promise<void> {
   await fetchJson('/api/stop', { method: 'POST' })
 }
+
+export async function getGitBranch(path: string): Promise<string | null> {
+  return invoke<string | null>('get_git_branch', { path })
+}

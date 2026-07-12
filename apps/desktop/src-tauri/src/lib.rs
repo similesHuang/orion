@@ -41,6 +41,22 @@ fn set_window_always_on_top(app: tauri::AppHandle, always_on_top: bool) -> Resul
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_git_branch(path: String) -> Result<Option<String>, String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", &path, "branch", "--show-current"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8(output.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()))
+    } else {
+        Ok(None)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -76,6 +92,7 @@ pub fn run() {
             toggle_maximize_window,
             close_window,
             set_window_always_on_top,
+            get_git_branch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

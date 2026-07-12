@@ -16,8 +16,10 @@
     "clean": "rm -rf src-tauri/dist src-tauri/target"
   },
   "dependencies": {
+    "@ant-design/x": "^2.8.0",
     "@orion/agent": "workspace:*",
-    "@orion/chat": "workspace:*"
+    "@orion/chat": "workspace:*",
+    "antd": "^6.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

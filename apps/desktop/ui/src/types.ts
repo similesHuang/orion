@@ -4,9 +4,8 @@ export type StatusKind = 'booting' | 'ready' | 'error' | 'busy'
 export interface TimelineStep {
   id: string
   toolName: string
-  title: string
-  argsPreview: string
   turn: number
+  args: Record<string, unknown>
   status: 'running' | 'done' | 'error'
   startedAt: number
   finishedAt?: number
@@ -14,21 +13,18 @@ export interface TimelineStep {
   resultSummary?: string
 }
 
-export interface TimelineState {
-  requestId: string
-  running: boolean
-  turn: number
-  startedAt: number
-  updatedAt: number
-  steps: TimelineStep[]
-}
+export type RenderUnit =
+  | { kind: 'text'; content: string }
+  | { kind: 'thought'; content: string }
+  | { kind: 'tool'; step: TimelineStep }
 
 export interface UiMessage {
   id: string
   role: Role
   text: string
+  thoughts: string[]
+  units: RenderUnit[]
   createdAt: number
-  timeline?: TimelineState | null
 }
 
 export interface LlmOption {
@@ -43,19 +39,29 @@ export interface BackendSnapshot {
   sessionHistories: unknown[][]
 }
 
+export interface Project {
+  id: string
+  name: string
+  path: string
+  gitBranch: string | null
+  updatedAt: number
+}
+
 export interface ChatSession {
   id: string
   title: string
   messages: UiMessage[]
   draft: string
-  pendingFiles: string[]
   updatedAt: number
   backendState: BackendSnapshot | null
+  projectId: string | null
 }
 
 export interface UiState {
+  projects: Project[]
   sessions: ChatSession[]
   activeSessionId: string | null
+  expandedProjectIds: string[]
 }
 
 export interface GatewayDiagnostic {
@@ -87,10 +93,6 @@ export interface DiagnosticsPayload {
     envExists: boolean
     envExamplePath: string
     envExampleExists: boolean
-    mykeyPath: string
-    mykeyExists: boolean
-    mykeyTemplatePath: string
-    mykeyTemplateExists: boolean
   }
   gateways: GatewayDiagnostic[]
 }

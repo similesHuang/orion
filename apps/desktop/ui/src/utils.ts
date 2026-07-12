@@ -1,8 +1,55 @@
-import type { ChatSession, Role, TimelineState, UiMessage } from './types'
+import type { ChatSession, Project, Role, UiMessage } from './types'
 
 export interface SseEvent {
   event?: string
   data: string
+}
+
+function shouldFlush(buffer: string): boolean {
+  if (buffer.length >= 16) return true
+  if (/\s$/.test(buffer) || /[，。！？；："'）\]\}、,.!?;:\")\]\}]$/.test(buffer.slice(-1))) return true
+  return false
+}
+
+export async function* streamBuffer(source: AsyncIterable<SseEvent>): AsyncIterable<SseEvent> {
+  let buffer = ''
+  for await (const ev of source) {
+    if (ev.event === 'tool_call' || ev.event === 'tool_result' || ev.event === 'done' || ev.event === 'error') {
+      if (buffer) {
+        yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+        buffer = ''
+      }
+      yield ev
+      continue
+    }
+    if (ev.event === 'thought') {
+      // thoughts are independent blocks; don't flush the text buffer
+      yield ev
+      continue
+    }
+    if (ev.event !== 'text') {
+      if (buffer) {
+        yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+        buffer = ''
+      }
+      yield ev
+      continue
+    }
+    let delta = ''
+    try {
+      delta = JSON.parse(ev.data).delta ?? ''
+    } catch {
+      delta = ev.data
+    }
+    buffer += delta
+    if (shouldFlush(buffer)) {
+      yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+      buffer = ''
+    }
+  }
+  if (buffer) {
+    yield { event: 'text', data: JSON.stringify({ delta: buffer }) }
+  }
 }
 
 export async function* parseSse(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<SseEvent> {
@@ -50,20 +97,27 @@ export function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, '&quot;')
 }
 
-export function createSession(title = '新会话'): ChatSession {
+export function createProject(projectPath: string, gitBranch: string | null = null): Project {
+  const normalized = projectPath.replace(/\\/g, '/')
+  return {
+    id: uid('project'),
+    name: normalized.split('/').filter(Boolean).pop() || 'project',
+    path: projectPath,
+    gitBranch,
+    updatedAt: Date.now(),
+  }
+}
+
+export function createSession(title = '新会话', projectId: string | null = null): ChatSession {
   return {
     id: uid(),
     title,
     messages: [],
     draft: '',
-    pendingFiles: [],
     updatedAt: Date.now(),
     backendState: null,
+    projectId,
   }
-}
-
-export function cloneTimeline(timeline: TimelineState | null | undefined): TimelineState | null {
-  return timeline ? (JSON.parse(JSON.stringify(timeline)) as TimelineState) : null
 }
 
 export function formatTime(ts: number): string {
@@ -112,8 +166,9 @@ export function sanitizeMessage(message: unknown): UiMessage {
     id: cast.id || uid('msg'),
     role: cast.role || 'assistant',
     text: cast.text || '',
+    thoughts: Array.isArray(cast.thoughts) ? cast.thoughts : [],
+    units: Array.isArray(cast.units) ? cast.units : [],
     createdAt: typeof cast.createdAt === 'number' ? cast.createdAt : Date.now(),
-    timeline: cloneTimeline(cast.timeline),
   }
 }
 

@@ -7,12 +7,18 @@ import {
   ContentBlockToolResult,
   ContentBlockToolUse,
   LLMResponse,
+  LLMStreamDelta,
   Message,
   SessionConfig,
   ToolCall,
   ToolDefinition,
 } from '@orion/types';
+import { findProjectRoot } from '@orion/shared';
 import { envToSessionConfigs, loadEnv } from './env-config.js';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const projectRoot = findProjectRoot(path.dirname(__filename));
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -155,7 +161,7 @@ async function* streamWithRetry(
   payload: unknown,
   maxRetries: number,
   connectTimeout: number
-): AsyncGenerator<string, Response, unknown> {
+): AsyncGenerator<LLMStreamDelta, Response, unknown> {
   const retryable = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const ctrl = new AbortController();
@@ -177,7 +183,7 @@ async function* streamWithRetry(
           continue;
         }
         const err = `!!!Error: HTTP ${resp.status}${body ? `: ${body.slice(0, 500)}` : ''}`;
-        yield err;
+        yield { kind: 'error', message: err };
         throw new Error(err);
       }
       return resp;
@@ -196,7 +202,8 @@ async function* streamWithRetry(
         continue;
       }
       if (errName.startsWith('!!!Error:')) throw e;
-      yield `!!!Error: ${errName}`;
+      const err = `!!!Error: ${errName}`;
+      yield { kind: 'error', message: err };
       throw e;
     }
   }
@@ -244,7 +251,7 @@ async function* sseLines(reader: ReadableStreamDefaultReader<Uint8Array>): Async
 async function* parseOpenAISSE(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   apiMode: 'chat_completions' | 'responses'
-): AsyncGenerator<string, LLMResponse, unknown> {
+): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
   const tcBuf: Record<number, { id: string; name: string; args: string }> = {};
   const fcBuf: Record<number, { id: string; name: string; args: string }> = {};
   let currentFcIdx = 0;
@@ -274,10 +281,10 @@ async function* parseOpenAISSE(
         const etype = evt.type;
         if (etype === 'response.output_text.delta') {
           contentText += evt.delta ?? '';
-          if (evt.delta) yield evt.delta;
+          if (evt.delta) yield { kind: 'text', delta: evt.delta };
         } else if (etype === 'response.output_text.done' && !contentText) {
           contentText += evt.text ?? '';
-          if (evt.text) yield evt.text;
+          if (evt.text) yield { kind: 'text', delta: evt.text };
         } else if (etype === 'response.output_item.added') {
           const item = evt.item ?? {};
           if (item.type === 'function_call') {
@@ -295,7 +302,7 @@ async function* parseOpenAISSE(
           const emsg = evt.error?.message || String(evt.error || '');
           if (emsg) {
             contentText += `!!!Error: ${emsg}`;
-            yield `!!!Error: ${emsg}`;
+            yield { kind: 'error', message: emsg };
           }
           warn = `!!!Error: ${emsg}`;
           break;
@@ -304,10 +311,13 @@ async function* parseOpenAISSE(
         const choices = evt.choices || [{}];
         const ch = choices[0];
         const delta = ch?.delta || {};
-        if (delta.reasoning_content) reasoningText += delta.reasoning_content;
+        if (delta.reasoning_content) {
+          reasoningText += delta.reasoning_content;
+          yield { kind: 'thinking', delta: delta.reasoning_content };
+        }
         if (delta.content) {
           contentText += delta.content;
-          yield delta.content;
+          yield { kind: 'text', delta: delta.content };
         }
         for (const tc of delta.tool_calls || []) {
           const idx = tc.index ?? 0;
@@ -359,7 +369,7 @@ async function* parseOpenAISSE(
 
 async function* parseClaudeSSE(
   reader: ReadableStreamDefaultReader<Uint8Array>
-): AsyncGenerator<string, LLMResponse, unknown> {
+): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
   const blocks: ContentBlock[] = [];
   let currentBlock: ContentBlock | null = null;
   let toolJsonBuf = '';
@@ -395,9 +405,10 @@ async function* parseClaudeSSE(
         if (!currentBlock) continue;
         if (delta.type === 'text_delta' && currentBlock.type === 'text') {
           currentBlock.text += delta.text || '';
-          if (delta.text) yield delta.text;
+          if (delta.text) yield { kind: 'text', delta: delta.text };
         } else if (delta.type === 'thinking_delta' && currentBlock.type === 'thinking') {
           currentBlock.thinking += delta.thinking || '';
+          if (delta.thinking) yield { kind: 'thinking', delta: delta.thinking };
         } else if (delta.type === 'signature_delta' && currentBlock.type === 'thinking') {
           currentBlock.signature = (currentBlock.signature || '') + delta.signature;
         } else if (delta.type === 'input_json_delta' && currentBlock.type === 'tool_use') {
@@ -425,6 +436,7 @@ async function* parseClaudeSSE(
       } else if (etype === 'error') {
         const emsg = evt.error?.message || String(evt.error || '');
         warn = `\n\n!!!Error: SSE ${emsg}`;
+        yield { kind: 'error', message: `SSE ${emsg}` };
         break;
       }
     } catch (e) {
@@ -650,7 +662,7 @@ export class OpenAISession extends BaseSession {
     super(cfg);
   }
 
-  async* ask(prompt: Message | string): AsyncGenerator<string, LLMResponse, unknown> {
+  async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     const userMsg: Message = typeof prompt === 'string' ? { role: 'user', content: prompt } : prompt;
     this.history.push(userMsg);
     trimMessagesHistory(this.history, this.contextWin);
@@ -668,7 +680,7 @@ export class OpenAISession extends BaseSession {
       }
     } catch (e) {
       const err = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
-      yield err;
+      yield { kind: 'error', message: err };
       resp = { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
     }
     if (resp && !resp.content.startsWith('!!!Error:')) {
@@ -681,7 +693,7 @@ export class OpenAISession extends BaseSession {
     return msgsClaude2Oai(rawList);
   }
 
-  async* rawAsk(messages: Message[]): AsyncGenerator<string, LLMResponse, unknown> {
+  async* rawAsk(messages: Message[]): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     const model = this.model;
     let temperature = this.temperature;
     const ml = model.toLowerCase();
@@ -729,7 +741,7 @@ export class OpenAISession extends BaseSession {
       return yield* parseOpenAISSE(reader, this.apiMode);
     }
     const err = '!!!Error: empty response body';
-    yield err;
+    yield { kind: 'error', message: err };
     return { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
   }
 }
@@ -788,7 +800,7 @@ export class AnthropicSession extends BaseSession {
     this.deviceId = cryptoRandom(64);
   }
 
-  async* ask(prompt: Message | string): AsyncGenerator<string, LLMResponse, unknown> {
+  async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     const userMsg: Message = typeof prompt === 'string' ? { role: 'user', content: prompt } : prompt;
     this.history.push(userMsg);
     trimMessagesHistory(this.history, this.contextWin);
@@ -806,7 +818,7 @@ export class AnthropicSession extends BaseSession {
       }
     } catch (e) {
       const err = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
-      yield err;
+      yield { kind: 'error', message: err };
       resp = { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
     }
     if (resp && !resp.content.startsWith('!!!Error:')) {
@@ -866,7 +878,7 @@ export class AnthropicSession extends BaseSession {
     }
   }
 
-  async* rawAsk(messages: Message[]): AsyncGenerator<string, LLMResponse, unknown> {
+  async* rawAsk(messages: Message[]): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     const msgs = ensureThinkingBlocks(fixMessages(dropUnsignedThinking(messages)), this.model);
     const maxTokens = this.maxTokens ?? 8192;
     let model = this.model;
@@ -933,7 +945,7 @@ export class AnthropicSession extends BaseSession {
       return yield* parseClaudeSSE(reader);
     }
     const err = '!!!Error: empty response body';
-    yield err;
+    yield { kind: 'error', message: err };
     return { content: err, thinking: '', tool_calls: [], raw: err, stop_reason: 'error' };
   }
 }
@@ -945,7 +957,7 @@ export class MixinSession extends BaseSession {
   private springSec: number;
   private curIdx = 0;
   private switchedAt = 0;
-  private origAsks: Array<(messages: Message[]) => AsyncGenerator<string, LLMResponse, unknown>> = [];
+  private origAsks: Array<(messages: Message[]) => AsyncGenerator<LLMStreamDelta, LLMResponse, unknown>> = [];
 
   constructor(allSessions: BaseSession[], cfg: SessionConfig) {
     super(cfg);
@@ -964,7 +976,7 @@ export class MixinSession extends BaseSession {
     this.model = this.sessions[0].model;
   }
 
-  async* ask(prompt: Message | string): AsyncGenerator<string, LLMResponse, unknown> {
+  async* ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     return yield* this.sessions[0].ask(prompt);
   }
 
@@ -972,22 +984,23 @@ export class MixinSession extends BaseSession {
     return this.sessions[0].makeMessages(rawList);
   }
 
-  async* rawAsk(messages: Message[]): AsyncGenerator<string, LLMResponse, unknown> {
+  async* rawAsk(messages: Message[]): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     if (!this.origAsks.length) {
       this.origAsks = this.sessions.map((s) => s.rawAsk.bind(s));
     }
     const base = this.pick();
     const n = this.sessions.length;
-    const testError = (x: string) => x.trim().startsWith('!!!Error:') || x.trim().startsWith('[Error:');
+    const isErrorDelta = (x: LLMStreamDelta) => x.kind === 'error';
+    const deltaMessage = (x: LLMStreamDelta) => (x.kind === 'error' ? x.message : String(x));
 
     const attempt = async function* (
       this: MixinSession,
       attemptNo: number
-    ): AsyncGenerator<string, LLMResponse, unknown> {
+    ): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
       const idx = (base + attemptNo) % n;
       const gen = this.origAsks[idx](messages);
       console.log(`[MixinSession] Using session (${this.sessions[idx].name})`);
-      let lastChunk = '';
+      let lastChunk: LLMStreamDelta | string = '';
       let yielded = false;
       let returnVal: LLMResponse | undefined;
       try {
@@ -998,19 +1011,20 @@ export class MixinSession extends BaseSession {
             break;
           }
           lastChunk = value;
-          if (!yielded && testError(value)) continue;
+          if (!yielded && isErrorDelta(value)) continue;
           yielded = true;
           yield value;
         }
       } catch (e) {
         lastChunk = `!!!Error: ${e instanceof Error ? e.message : String(e)}`;
       }
-      const err = testError(lastChunk);
+      const errMsg = typeof lastChunk === 'string' ? lastChunk : deltaMessage(lastChunk);
+      const err = errMsg.trim().startsWith('!!!Error:') || errMsg.trim().startsWith('[Error:');
       if (!err) {
         if (attemptNo > 0) {
           this.curIdx = idx;
           this.switchedAt = Date.now() / 1000;
-        } else if (lastChunk.includes('[!!! 流异常中断') && n > 1) {
+        } else if (errMsg.includes('[!!! 流异常中断') && n > 1) {
           this.curIdx = (idx + 1) % n;
           this.switchedAt = Date.now() / 1000;
           console.log(`[MixinSession] Partial failure, next call → s${this.curIdx} (${this.sessions[this.curIdx].name})`);
@@ -1018,17 +1032,17 @@ export class MixinSession extends BaseSession {
         return returnVal!;
       }
       if (attemptNo >= this.retries) {
-        yield lastChunk;
-        return returnVal ?? { content: lastChunk, thinking: '', tool_calls: [], raw: lastChunk, stop_reason: 'error' };
+        yield { kind: 'error', message: errMsg };
+        return returnVal ?? { content: errMsg, thinking: '', tool_calls: [], raw: errMsg, stop_reason: 'error' };
       }
       const nxt = (base + attemptNo + 1) % n;
       if (nxt === base) {
         const rnd = Math.floor((attemptNo + 1) / n);
         const delay = Math.min(30, this.baseDelay * 1.5 ** rnd);
-        console.log(`[MixinSession] ${lastChunk.slice(0, 80)}, round ${rnd} exhausted, retry in ${delay.toFixed(1)}s`);
+        console.log(`[MixinSession] ${errMsg.slice(0, 80)}, round ${rnd} exhausted, retry in ${delay.toFixed(1)}s`);
         await sleep(delay * 1000);
       } else {
-        console.log(`[MixinSession] ${lastChunk.slice(0, 80)}, retry ${attemptNo + 1}/${this.retries} (s${idx}→s${nxt})`);
+        console.log(`[MixinSession] ${errMsg.slice(0, 80)}, retry ${attemptNo + 1}/${this.retries} (s${idx}→s${nxt})`);
       }
       return yield* attempt.call(this, attemptNo + 1);
     };
@@ -1042,97 +1056,19 @@ export class MixinSession extends BaseSession {
   }
 }
 
-export class ToolClient {
-  backend: BaseSession;
-  name: string;
-  private lastTools = '';
-  private totalCdTokens = 0;
-
-  constructor(backend: BaseSession) {
-    this.backend = backend;
-    this.name = backend.name;
-  }
-
-  async* chat(options: ChatOptions): AsyncGenerator<string, LLMResponse, unknown> {
-    const tools = options.tools ? JSON.parse(JSON.stringify(options.tools)) as ToolDefinition[] : undefined;
-    if (tools) {
-      for (const t of tools) {
-        if (t.function.name === 'file_write') {
-          const props = (t.function.parameters as { properties?: Record<string, unknown> }).properties;
-          if (props) delete props.content;
-          const extra = '. Content must be placed in <file_content> tags in reply body, not in args';
-          if (!t.function.description.includes(extra)) t.function.description += extra;
-        }
-      }
-    }
-    const fullPrompt = this.buildProtocolPrompt(options.messages, tools);
-    writeLlmLog('Prompt', fullPrompt);
-    console.log('Full prompt length:', fullPrompt.length, 'chars');
-    const gen = this.backend.ask(fullPrompt);
-    while (true) {
-      const { done, value } = await gen.next();
-      if (done) {
-        writeLlmLog('Response', JSON.stringify(value, null, 2));
-        return value;
-      }
-      yield value;
-    }
-  }
-
-  private prepareToolInstruction(tools?: ToolDefinition[]): string {
-    if (!tools) return '';
-    const toolsJson = JSON.stringify(tools, null, 0);
-    const lang = process.env.GA_LANG || 'zh';
-    let instruction = '';
-    if (lang === 'en') {
-      instruction = `### Interaction Protocol (must follow strictly, always in effect)\n1. **Think**: Analyze inside <thinking>.\n2. **Summarize**: One-line (<30 words) snapshot in <summary>.\n3. **Act**: Output <tool_use> blocks after reply.\n`;
-    } else {
-      instruction = `### 交互协议（必须严格遵守，持续有效）\n1. **思考**: 在 <thinking> 中先思考。\n2. **总结**: 在 <summary> 中输出极简单行（<30字）物理快照。\n3. **行动**: 如需调用工具，输出 <tool_use> 块。\n`;
-    }
-    instruction += `\nFormat: \`\`\`<tool_use>{"name": "tool_name", "arguments": {...}}</tool_use>\`\`\`\n\n### Tools:\n${toolsJson}\n`;
-    if (this.lastTools === toolsJson) {
-      instruction = lang === 'en'
-        ? '\n### Tools: still active, ready to call.\n'
-        : '\n### 工具库持续有效，可正常调用。\n';
-    } else {
-      this.totalCdTokens = 0;
-    }
-    this.lastTools = toolsJson;
-    return instruction;
-  }
-
-  private buildProtocolPrompt(messages: Message[], tools?: ToolDefinition[]): string {
-    const systemContent = messages.find((m) => m.role.toLowerCase() === 'system')?.content || '';
-    const history = messages.filter((m) => m.role.toLowerCase() !== 'system');
-    const toolInstruction = this.prepareToolInstruction(tools);
-    let system = '';
-    if (typeof systemContent === 'string' && systemContent) system = `${systemContent}\n`;
-    system += toolInstruction;
-    let user = '';
-    for (const m of history) {
-      const role = m.role === 'user' ? 'USER' : 'ASSISTANT';
-      user += `=== ${role} ===\n`;
-      for (const tr of m.tool_results || []) user += `<tool_result>${tr.content}</tool_result>\n`;
-      user += String(m.content) + '\n';
-      this.totalCdTokens += user.length / 3;
-    }
-    if (this.totalCdTokens > 9000) this.lastTools = '';
-    user += '=== ASSISTANT ===\n';
-    return system + user;
-  }
-}
-
 export class NativeToolClient {
   backend: BaseSession;
   name: string;
+  cwd: string;
   private pendingToolIds: string[] = [];
 
-  constructor(backend: BaseSession) {
+  constructor(backend: BaseSession, cwd?: string) {
     this.backend = backend;
     this.name = backend.name;
+    this.cwd = cwd ?? path.join(projectRoot, 'temp');
   }
 
-  async* chat(options: ChatOptions): AsyncGenerator<string, LLMResponse, unknown> {
+  async* chat(options: ChatOptions): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown> {
     if (options.tools) this.backend.tools = options.tools;
     if (!this.backend.history.length) this.pendingToolIds = [];
     const combinedContent: ContentBlock[] = [];
@@ -1221,8 +1157,7 @@ export function loadSessionsFromEnv(dotenvPath?: string): BaseSession[] {
   return sessions;
 }
 
-export function createClient(sessions: BaseSession[], index = 0): ToolClient | NativeToolClient {
+export function createClient(sessions: BaseSession[], index = 0, cwd?: string): NativeToolClient {
   const backend = sessions[index % sessions.length];
-  const isNative = backend instanceof AnthropicSession || backend instanceof OpenAISession;
-  return isNative ? new NativeToolClient(backend) : new ToolClient(backend);
+  return new NativeToolClient(backend, cwd);
 }

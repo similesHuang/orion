@@ -72,22 +72,31 @@ fn find_sidecar_script_from_cwd() -> Option<PathBuf> {
     None
 }
 
+fn normalize_path(path: &Path) -> PathBuf {
+    // Tauri's BaseDirectory::Resource on Windows can return a verbatim (\\?\) path.
+    // Node.js module resolution does not handle these extended paths reliably on Windows,
+    // often collapsing them to the drive letter and failing with EISDIR.
+    // `dunce::simplified` strips the verbatim prefix when the resulting path is
+    // still usable, and keeps it for paths that actually need extended-length support.
+    dunce::simplified(path).to_path_buf()
+}
+
 fn resolve_sidecar_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // 1. Packaged app: resources bundled by tauri.conf.json bundle.resources.
     if let Ok(resource_path) = app.path().resolve("dist/sidecar/chat-sidecar.js", BaseDirectory::Resource) {
         if resource_path.exists() {
-            return Ok(resource_path);
+            return Ok(normalize_path(&resource_path));
         }
     }
 
     // 2. Dev mode: walk up from the executable (src-tauri/target/debug/orion -> src-tauri).
     if let Some(path) = find_sidecar_script_from_exe() {
-        return Ok(path);
+        return Ok(normalize_path(&path));
     }
 
     // 3. Fallback: current working directory (e.g. when invoked from project root).
     if let Some(path) = find_sidecar_script_from_cwd() {
-        return Ok(path);
+        return Ok(normalize_path(&path));
     }
 
     Err("could not find dist/sidecar/chat-sidecar.js in resources, executable ancestors, or current directory".to_string())

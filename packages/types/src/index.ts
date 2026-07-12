@@ -107,6 +107,11 @@ export interface LLMResponse {
   usage?: Record<string, number>;
 }
 
+export type LLMStreamDelta =
+  | { kind: 'text'; delta: string }
+  | { kind: 'thinking'; delta: string }
+  | { kind: 'error'; message: string };
+
 export interface ChatOptions {
   messages: Message[];
   tools?: ToolDefinition[];
@@ -154,15 +159,22 @@ export abstract class BaseSession {
     this.maxTokens = cfg.max_tokens;
   }
 
-  abstract ask(prompt: Message | string): AsyncGenerator<string, LLMResponse, unknown>;
+  abstract ask(prompt: Message | string): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown>;
 
   abstract makeMessages(rawList: Message[]): Message[];
 
-  abstract rawAsk(messages: Message[]): AsyncGenerator<string, LLMResponse, unknown>;
+  abstract rawAsk(messages: Message[]): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown>;
 }
 
+export type AgentYield =
+  | { kind: 'text'; content: string }
+  | { kind: 'thought'; content: string }
+  | { kind: 'tool_call'; id: string; turn: number; toolName: string; args: Record<string, unknown> }
+  | { kind: 'tool_result'; id: string; status: 'done' | 'error'; content: unknown }
+  | { kind: 'error'; message: string };
+
 export interface TaskQueueLike {
-  get(block?: boolean, timeout?: number): Promise<{ done?: string; next?: string } | null>;
+  get(block?: boolean, timeout?: number): Promise<{ done?: string; next?: AgentYield; source?: string } | null>;
 }
 
 export interface GenericAgentLike {

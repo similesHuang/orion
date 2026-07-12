@@ -7,16 +7,14 @@ import { findProjectRoot } from '@orion/shared';
 import { agentRunnerLoop } from './agent-loop.js';
 import {
   createClient,
-  loadSessions,
   loadSessionsFromEnv,
   NativeToolClient,
-  ToolClient,
 } from '@orion/llm';
-import { BaseSession, Message, TaskQueueLike } from '@orion/types';
+import { AgentYield, BaseSession, Message, TaskQueueLike } from '@orion/types';
 import * as costTracker from './cost-tracker.js';
 import { GenericAgentHandler, HandlerParent } from './handler-base.js';
 
-export type { BaseSession, Message, TaskQueueLike, GenericAgentLike } from '@orion/types';
+export type { BaseSession, Message, TaskQueueLike, GenericAgentLike, AgentYield } from '@orion/types';
 export { GenericAgentHandler, HandlerParent } from './handler-base.js';
 export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from './agent-loop.js';
 export * as ultraplan from './ultraplan.js';
@@ -67,7 +65,7 @@ function ensureMemoryFiles(): void {
   }
 }
 
-function getGlobalMemory(): string {
+function getGlobalMemory(cwd: string): string {
   let prompt = '\n';
   try {
     const suffix = GA_LANG === 'en' ? '_en' : '';
@@ -75,7 +73,7 @@ function getGlobalMemory(): string {
     const structure = fs.readFileSync(path.join(projectRoot, `assets/insight_fixed_structure${suffix}.txt`), 'utf-8');
     const globalMem = fs.readFileSync(path.join(projectRoot, 'memory', 'global_mem.txt'), 'utf-8');
     const userName = readUserName();
-    prompt += `cwd = ${path.join(projectRoot, 'temp')} (./)\n`;
+    prompt += `cwd = ${cwd} (./)\n`;
     prompt += '\n[Memory] (../memory)\n';
     if (userName) prompt += `[Current User] 用户姓名：${userName}\n\n`;
     prompt += structure + '\n../memory/global_mem_insight.txt:\n';
@@ -97,7 +95,7 @@ function readUserName(): string | undefined {
   }
 }
 
-function getSystemPrompt(): string {
+function getSystemPrompt(cwd: string): string {
   const suffix = GA_LANG === 'en' ? '_en' : '';
   const p = path.join(projectRoot, 'assets', `sys_prompt${suffix}.txt`);
   let prompt = fs.readFileSync(p, 'utf-8');
@@ -106,29 +104,20 @@ function getSystemPrompt(): string {
     ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
   prompt += `\nToday: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${weekdays[now.getDay()]}\n`;
-  prompt += getGlobalMemory();
+  prompt += getGlobalMemory(cwd);
   return prompt;
 }
 
-function findConfigPath(): { kind: 'env'; path: string } | { kind: 'json'; path: string } | null {
+function findConfigPath(): { path: string } | null {
   const envPath = path.join(projectRoot, '.env');
-  if (fs.existsSync(envPath)) return { kind: 'env', path: envPath };
-  const jsonCandidates = [
-    path.join(projectRoot, 'mykey.json'),
-    path.join(projectRoot, 'mykey.template.json'),
-  ];
-  for (const p of jsonCandidates) {
-    if (fs.existsSync(p)) return { kind: 'json', path: p };
-  }
+  if (fs.existsSync(envPath)) return { path: envPath };
   return null;
 }
 
 function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
   const cfg = findConfigPath();
-  if (!cfg) throw new Error('No .env, mykey.json or mykey.template.json found.');
-  const sessions = cfg.kind === 'env'
-    ? loadSessionsFromEnv(cfg.path)
-    : loadSessions(cfg.path);
+  if (!cfg) throw new Error('No .env found. Please copy .env.example to .env and configure your LLM.');
+  const sessions = loadSessionsFromEnv(cfg.path);
   if (keepHistory && sessions.length) {
     sessions[0].history = keepHistory;
   }
@@ -138,12 +127,18 @@ function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
 type TaskItem = {
   query: string;
   source: string;
-  output: { next?: string; done?: string; source: string }[];
+  cwd?: string;
+  output: { next?: AgentYield; done?: string; source: string }[];
 };
+
+export interface GenericAgentOptions {
+  cwd?: string;
+}
 
 export class GenericAgent {
   sessions: BaseSession[] = [];
-  client: ToolClient | NativeToolClient;
+  client: NativeToolClient;
+  cwd: string;
   llmNo = 0;
   verbose = true;
   peerHint = true;
@@ -156,11 +151,12 @@ export class GenericAgent {
   processing = false;
   bannedTools: string[] = [];
 
-  constructor() {
+  constructor(options?: GenericAgentOptions) {
     this.sessions = loadSessionsFresh();
-    this.client = createClient(this.sessions, this.llmNo);
-    if (!fs.existsSync(path.join(projectRoot, 'temp'))) {
-      fs.mkdirSync(path.join(projectRoot, 'temp'), { recursive: true });
+    this.cwd = options?.cwd ?? path.join(projectRoot, 'temp');
+    this.client = createClient(this.sessions, this.llmNo, this.cwd);
+    if (!fs.existsSync(this.cwd)) {
+      fs.mkdirSync(this.cwd, { recursive: true });
     }
   }
 
@@ -172,7 +168,7 @@ export class GenericAgent {
   nextLlm(n = -1): void {
     this.sessions = loadSessionsFresh(this.client.backend.history);
     this.llmNo = (n < 0 ? this.llmNo + 1 : n) % this.sessions.length;
-    this.client = createClient(this.sessions, this.llmNo);
+    this.client = createClient(this.sessions, this.llmNo, this.cwd);
     const name = this.client.backend.model.toLowerCase();
     try {
       loadToolSchema(name.includes('glm') || name.includes('minimax') || name.includes('kimi') ? '_cn' : '');
@@ -241,9 +237,9 @@ export class GenericAgent {
     return raw;
   }
 
-  putTask(query: string, source = 'user'): TaskQueueLike {
-    const item: TaskItem = { query, source, output: [] };
-    const pending: Array<(value: { done?: string; next?: string } | null) => void> = [];
+  putTask(query: string, source = 'user', cwd?: string): TaskQueueLike {
+    const item: TaskItem = { query, source, cwd, output: [] };
+    const pending: Array<(value: { done?: string; next?: AgentYield; source?: string } | null) => void> = [];
     const resolveOne = () => {
       while (pending.length && item.output.length) {
         const resolve = pending.shift()!;
@@ -261,7 +257,7 @@ export class GenericAgent {
     return {
       get: async (_block?: boolean, timeout?: number) => {
         if (item.output.length) return item.output.shift() || null;
-        return new Promise<{ done?: string; next?: string } | null>((resolve) => {
+        return new Promise<{ done?: string; next?: AgentYield; source?: string } | null>((resolve) => {
           pending.push(resolve);
           if (timeout !== undefined) {
             setTimeout(() => {
@@ -303,7 +299,8 @@ export class GenericAgent {
     const rquery = raw.replace(/\n/g, ' ').slice(0, 200);
     this.history.push(`[USER]: ${rquery}`);
 
-    let sysPrompt = getSystemPrompt();
+    const taskCwd = task.cwd ?? path.join(projectRoot, 'temp');
+    let sysPrompt = getSystemPrompt(taskCwd);
     const extra = (this.client.backend as unknown as Record<string, unknown>).extra_sys_prompt;
     if (typeof extra === 'string') sysPrompt += extra;
     if (this.peerHint) sysPrompt += '\n[Peer] 用户提及其他会话/后台任务状态时: temp/model_responses/ (只找近期修改的文件尾部)\n';
@@ -315,7 +312,7 @@ export class GenericAgent {
       taskDir: this.taskDir,
       verbose: this.verbose,
     };
-    const handler = new GenericAgentHandler(parent, this.history, path.join(projectRoot, 'temp'));
+    const handler = new GenericAgentHandler(parent, this.history, taskCwd);
     if (this.handler?.working.key_info) {
       const ki = String(this.handler.working.key_info).replace(/\n\[SYSTEM\] 此为.*?工作记忆[。\n]*/g, '');
       const ps = (Number(this.handler.working.passed_sessions) || 0) + 1;
@@ -332,7 +329,6 @@ export class GenericAgent {
       handler,
       toolsSchema,
       70,
-      this.verbose,
       userContent
     );
 
@@ -340,7 +336,11 @@ export class GenericAgent {
     try {
       for await (const chunk of gen) {
         if (this.stopSig) break;
-        fullResp += chunk;
+        if (chunk.kind === 'text') {
+          fullResp += chunk.content;
+        } else if (chunk.kind === 'error') {
+          fullResp += `\n\`\`\`\n${chunk.message}\n\`\`\``;
+        }
         task.output.push({ next: chunk, source: task.source });
       }
       if (fullResp.includes('</summary>')) fullResp = fullResp.replace(/<\/summary>/g, '</summary>\n\n');
@@ -569,7 +569,7 @@ export async function main(): Promise<void> {
       while (true) {
         const item = await dq.get(true, 0);
         if (!item) break;
-        if (item.next) process.stdout.write(item.next);
+        if (item.next) process.stdout.write(renderAgentYieldToText(item.next));
         if (item.done) {
           process.stdout.write(item.done);
           console.log();
@@ -597,6 +597,23 @@ function getFlag(args: string[], key: string): string | undefined {
   const idx = args.indexOf(key);
   if (idx >= 0 && idx + 1 < args.length) return args[idx + 1];
   return undefined;
+}
+
+function renderAgentYieldToText(y: AgentYield): string {
+  switch (y.kind) {
+    case 'text':
+      return y.content;
+    case 'thought':
+      return '';
+    case 'tool_call':
+      return `\n🛠️  ${y.toolName}\n`;
+    case 'tool_result':
+      return y.status === 'error' ? '[error]\n' : '';
+    case 'error':
+      return `\n!!!Error: ${y.message}\n`;
+    default:
+      return '';
+  }
 }
 
 function sleep(ms: number): Promise<void> {

@@ -9,14 +9,12 @@ export function loadMykey(scriptFile?: string): Record<string, unknown> {
     dir = path.resolve(dir, '..');
   }
   while (true) {
-    for (const name of ['mykey.json', 'mykey.template.json']) {
-      const p = path.join(dir, name);
-      if (fs.existsSync(p)) {
-        try {
-          return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>;
-        } catch {
-          return {};
-        }
+    const p = path.join(dir, 'mykey.json');
+    if (fs.existsSync(p)) {
+      try {
+        return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        return {};
       }
     }
     const parent = path.dirname(dir);

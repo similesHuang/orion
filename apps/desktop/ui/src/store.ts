@@ -1,23 +1,30 @@
-import { MAX_ATTACHMENTS, STORAGE_KEY } from './constants'
-import { cloneTimeline, createSession, sanitizeMessage, sessionPreview } from './utils'
-import type { BackendSnapshot, ChatSession, Role, UiMessage, UiState } from './types'
+import { STORAGE_KEY } from './constants'
+import { createSession, sanitizeMessage, sessionPreview } from './utils'
+import type { BackendSnapshot, ChatSession, Project, RenderUnit, Role, TimelineStep, UiMessage, UiState } from './types'
 
 export type ChatAction =
-  | { type: 'init'; sessions: ChatSession[]; activeSessionId: string | null }
+  | { type: 'init'; state: UiState }
   | { type: 'addMessage'; sessionId: string; role: Role; text: string; extras?: Partial<UiMessage> }
   | { type: 'updateMessage'; sessionId: string; id: string; patch: Partial<UiMessage> }
+  | { type: 'appendText'; sessionId: string; id: string; delta: string }
+  | { type: 'appendThought'; sessionId: string; id: string; delta: string }
+  | { type: 'addToolUnit'; sessionId: string; id: string; step: TimelineStep }
+  | { type: 'updateToolUnit'; sessionId: string; messageId: string; id: string; patch: Partial<TimelineStep> }
   | { type: 'setDraft'; sessionId: string; draft: string }
-  | { type: 'setPendingFiles'; sessionId: string; files: string[] }
-  | { type: 'addPendingFiles'; sessionId: string; paths: string[] }
-  | { type: 'removePendingFile'; sessionId: string; index: number }
-  | { type: 'clearPendingFiles'; sessionId: string }
   | { type: 'setBackendState'; sessionId: string; backendState: BackendSnapshot | null }
   | { type: 'touchSession'; sessionId: string }
   | { type: 'switchSession'; sessionId: string }
-  | { type: 'createSession'; title?: string }
+  | { type: 'createSession'; title?: string; projectId?: string | null }
   | { type: 'renameCurrent'; title: string }
   | { type: 'deleteCurrent' }
   | { type: 'resetCurrent' }
+  | { type: 'createProject'; project: Project }
+  | { type: 'deleteProject'; projectId: string }
+  | { type: 'renameProject'; projectId: string; name: string }
+  | { type: 'setProjectGitBranch'; projectId: string; gitBranch: string | null }
+  | { type: 'bindCurrentProject'; projectId: string }
+  | { type: 'unbindCurrentProject' }
+  | { type: 'toggleExpandProject'; projectId: string }
 
 export function currentSession(state: UiState): ChatSession {
   if (!state.sessions.length) {
@@ -39,6 +46,13 @@ function mapSession(state: UiState, sessionId: string, fn: (session: ChatSession
   }
 }
 
+function mapProject(state: UiState, projectId: string, fn: (project: Project) => Project): UiState {
+  return {
+    ...state,
+    projects: state.projects.map((project) => (project.id === projectId ? fn(project) : project)),
+  }
+}
+
 function touch(session: ChatSession): ChatSession {
   return { ...session, updatedAt: Date.now() }
 }
@@ -46,18 +60,16 @@ function touch(session: ChatSession): ChatSession {
 export function chatReducer(state: UiState, action: ChatAction): UiState {
   switch (action.type) {
     case 'init':
-      return {
-        sessions: action.sessions,
-        activeSessionId: action.activeSessionId,
-      }
+      return action.state
 
     case 'addMessage': {
       const message: UiMessage = {
         id: action.extras?.id ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role: action.role,
         text: action.text,
+        thoughts: action.extras?.thoughts ?? [],
+        units: action.extras?.units ?? [],
         createdAt: action.extras?.createdAt ?? Date.now(),
-        timeline: cloneTimeline(action.extras?.timeline),
       }
       return mapSession(state, action.sessionId, (session) =>
         touch({
@@ -73,43 +85,71 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
           ...session,
           messages: session.messages.map((message) => {
             if (message.id !== action.id) return message
-            return {
-              ...message,
-              text: action.patch.text ?? message.text,
-              timeline: action.patch.timeline !== undefined ? cloneTimeline(action.patch.timeline) : message.timeline,
-            }
+            return { ...message, ...action.patch }
           }),
+        })
+      )
+
+    case 'appendText':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          messages: session.messages.map((message) =>
+            message.id === action.id
+              ? { ...message, text: message.text + action.delta, units: appendUnitText(message.units, action.delta) }
+              : message
+          ),
+        })
+      )
+
+    case 'appendThought':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          messages: session.messages.map((message) => {
+            if (message.id !== action.id) return message
+            const { units, thoughts } = appendUnitThought(message.units, message.thoughts, action.delta)
+            return { ...message, thoughts, units }
+          }),
+        })
+      )
+
+    case 'addToolUnit':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          messages: session.messages.map((message) =>
+            message.id === action.id
+              ? { ...message, units: [...message.units, { kind: 'tool', step: action.step }] }
+              : message
+          ),
+        })
+      )
+
+    case 'updateToolUnit':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          messages: session.messages.map((message) =>
+            message.id === action.messageId
+              ? {
+                  ...message,
+                  units: updateToolUnit(message.units, action.id, (step) => {
+                    const finishedAt = action.patch.finishedAt ?? Date.now()
+                    return {
+                      ...action.patch,
+                      finishedAt,
+                      durationMs: finishedAt - step.startedAt,
+                    }
+                  }),
+                }
+              : message
+          ),
         })
       )
 
     case 'setDraft':
       return mapSession(state, action.sessionId, (session) => touch({ ...session, draft: action.draft }))
-
-    case 'setPendingFiles':
-      return mapSession(state, action.sessionId, (session) => touch({ ...session, pendingFiles: action.files }))
-
-    case 'addPendingFiles': {
-      return mapSession(state, action.sessionId, (session) =>
-        touch({
-          ...session,
-          pendingFiles: [
-            ...session.pendingFiles,
-            ...action.paths.filter((path) => !session.pendingFiles.includes(path)),
-          ].slice(0, MAX_ATTACHMENTS),
-        })
-      )
-    }
-
-    case 'removePendingFile':
-      return mapSession(state, action.sessionId, (session) =>
-        touch({
-          ...session,
-          pendingFiles: session.pendingFiles.filter((_, index) => index !== action.index),
-        })
-      )
-
-    case 'clearPendingFiles':
-      return mapSession(state, action.sessionId, (session) => touch({ ...session, pendingFiles: [] }))
 
     case 'setBackendState':
       return mapSession(state, action.sessionId, (session) =>
@@ -123,8 +163,9 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
       return { ...state, activeSessionId: action.sessionId }
 
     case 'createSession': {
-      const session = createSession(action.title ?? `新会话 ${state.sessions.length + 1}`)
+      const session = createSession(action.title ?? `新会话 ${state.sessions.length + 1}`, action.projectId ?? null)
       return {
+        ...state,
         sessions: [session, ...state.sessions],
         activeSessionId: session.id,
       }
@@ -142,6 +183,7 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
       const remaining = state.sessions.filter((item) => item.id !== session.id)
       if (!remaining.length) remaining.push(createSession())
       return {
+        ...state,
         sessions: remaining,
         activeSessionId: remaining[0].id,
       }
@@ -154,14 +196,131 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
           ...item,
           messages: [],
           draft: '',
-          pendingFiles: [],
           backendState: null,
         })
       )
     }
 
+    case 'createProject': {
+      return {
+        ...state,
+        projects: [action.project, ...state.projects],
+        expandedProjectIds: [...state.expandedProjectIds, action.project.id],
+      }
+    }
+
+    case 'deleteProject': {
+      return {
+        ...state,
+        projects: state.projects.filter((project) => project.id !== action.projectId),
+        sessions: state.sessions.map((session) =>
+          session.projectId === action.projectId ? { ...session, projectId: null } : session
+        ),
+        expandedProjectIds: state.expandedProjectIds.filter((id) => id !== action.projectId),
+      }
+    }
+
+    case 'renameProject':
+      return mapProject(state, action.projectId, (project) =>
+        touchProject({ ...project, name: action.name.trim() || project.name })
+      )
+
+    case 'setProjectGitBranch':
+      return mapProject(state, action.projectId, (project) =>
+        touchProject({ ...project, gitBranch: action.gitBranch })
+      )
+
+    case 'bindCurrentProject': {
+      const session = currentSession(state)
+      return mapSession(state, session.id, (item) => touch({ ...item, projectId: action.projectId }))
+    }
+
+    case 'unbindCurrentProject': {
+      const session = currentSession(state)
+      return mapSession(state, session.id, (item) => touch({ ...item, projectId: null }))
+    }
+
+    case 'toggleExpandProject': {
+      const expanded = new Set(state.expandedProjectIds)
+      if (expanded.has(action.projectId)) {
+        expanded.delete(action.projectId)
+      } else {
+        expanded.add(action.projectId)
+      }
+      return { ...state, expandedProjectIds: [...expanded] }
+    }
+
     default:
       return state
+  }
+}
+
+function appendUnitText(units: RenderUnit[], delta: string): RenderUnit[] {
+  if (!delta) return units
+  const last = units[units.length - 1]
+  if (last && last.kind === 'text') {
+    return [...units.slice(0, -1), { kind: 'text' as const, content: last.content + delta }]
+  }
+  return [...units, { kind: 'text' as const, content: delta }]
+}
+
+function appendUnitThought(
+  units: RenderUnit[],
+  thoughts: string[],
+  delta: string
+): { units: RenderUnit[]; thoughts: string[] } {
+  if (!delta) return { units, thoughts }
+  const lastUnit = units[units.length - 1]
+  const nextUnits: RenderUnit[] =
+    lastUnit && lastUnit.kind === 'thought'
+      ? [...units.slice(0, -1), { kind: 'thought' as const, content: lastUnit.content + delta }]
+      : [...units, { kind: 'thought' as const, content: delta }]
+  const lastThought = thoughts[thoughts.length - 1]
+  const nextThoughts =
+    lastThought !== undefined
+      ? [...thoughts.slice(0, -1), lastThought + delta]
+      : [...thoughts, delta]
+  return { units: nextUnits, thoughts: nextThoughts }
+}
+
+function updateToolUnit(
+  units: RenderUnit[],
+  id: string,
+  patch: Partial<TimelineStep> | ((step: TimelineStep) => Partial<TimelineStep>)
+): RenderUnit[] {
+  return units.map((unit) => {
+    if (unit.kind !== 'tool' || unit.step.id !== id) return unit
+    const resolved = typeof patch === 'function' ? patch(unit.step) : patch
+    return { kind: 'tool', step: { ...unit.step, ...resolved } }
+  })
+}
+
+function touchProject(project: Project): Project {
+  return { ...project, updatedAt: Date.now() }
+}
+
+function normalizeSession(session: unknown): ChatSession {
+  const cast = session as Partial<ChatSession>
+  return {
+    id: cast.id || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: cast.title || '未命名会话',
+    messages: Array.isArray(cast.messages) ? cast.messages.slice(-200).map(sanitizeMessage) : [],
+    draft: typeof cast.draft === 'string' ? cast.draft : '',
+    updatedAt: typeof cast.updatedAt === 'number' ? cast.updatedAt : Date.now(),
+    backendState: cast.backendState ?? null,
+    projectId: typeof cast.projectId === 'string' ? cast.projectId : null,
+  }
+}
+
+function normalizeProject(project: unknown): Project | null {
+  const cast = project as Partial<Project>
+  if (!cast.id || typeof cast.path !== 'string') return null
+  return {
+    id: cast.id,
+    name: cast.name || cast.path.split(/[\\/]/).filter(Boolean).pop() || 'project',
+    path: cast.path,
+    gitBranch: cast.gitBranch ?? null,
+    updatedAt: typeof cast.updatedAt === 'number' ? cast.updatedAt : Date.now(),
   }
 }
 
@@ -172,28 +331,21 @@ export function loadState(): UiState {
     const parsed = JSON.parse(raw) as Partial<UiState> & {
       messages?: UiMessage[]
       draft?: string
-      pendingFiles?: string[]
     }
 
-    if (Array.isArray(parsed.sessions) && parsed.sessions.length) {
+    if (Array.isArray(parsed.sessions)) {
       return {
-        sessions: parsed.sessions.map((session) => ({
-          id: session.id || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          title: session.title || '未命名会话',
-          messages: Array.isArray(session.messages)
-            ? session.messages.slice(-200).map(sanitizeMessage)
-            : [],
-          draft: typeof session.draft === 'string' ? session.draft : '',
-          pendingFiles: Array.isArray(session.pendingFiles)
-            ? session.pendingFiles.filter((item): item is string => typeof item === 'string')
-            : [],
-          updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : Date.now(),
-          backendState: session.backendState ?? null,
-        })),
+        projects: Array.isArray(parsed.projects)
+          ? parsed.projects.map(normalizeProject).filter((project): project is Project => project !== null)
+          : [],
+        sessions: parsed.sessions.map(normalizeSession),
         activeSessionId:
           typeof parsed.activeSessionId === 'string'
             ? parsed.activeSessionId
             : parsed.sessions[0]?.id ?? null,
+        expandedProjectIds: Array.isArray(parsed.expandedProjectIds)
+          ? parsed.expandedProjectIds.filter((id): id is string => typeof id === 'string')
+          : [],
       }
     }
 
@@ -201,17 +353,14 @@ export function loadState(): UiState {
       const migrated = createSession('迁移会话')
       migrated.messages = parsed.messages.slice(-200).map(sanitizeMessage)
       migrated.draft = typeof parsed.draft === 'string' ? parsed.draft : ''
-      migrated.pendingFiles = Array.isArray(parsed.pendingFiles)
-        ? parsed.pendingFiles.filter((item): item is string => typeof item === 'string')
-        : []
-      return { sessions: [migrated], activeSessionId: migrated.id }
+      return { projects: [], sessions: [migrated], activeSessionId: migrated.id, expandedProjectIds: [] }
     }
   } catch {
     // ignore and fall back
   }
 
   const initial = createSession()
-  return { sessions: [initial], activeSessionId: initial.id }
+  return { projects: [], sessions: [initial], activeSessionId: initial.id, expandedProjectIds: [] }
 }
 
 export function saveState(state: UiState): void {
