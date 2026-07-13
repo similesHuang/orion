@@ -5,6 +5,7 @@ mod sidecar;
 
 pub struct AppState {
     pub sidecar_port: Mutex<Option<u16>>,
+    pub workspace_path: Mutex<Option<String>>,
 }
 
 fn main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
@@ -70,6 +71,7 @@ pub fn run() {
         }))
         .manage(AppState {
             sidecar_port: Mutex::new(None),
+            workspace_path: Mutex::new(None),
         })
         .setup(|app| {
             sidecar::init_sidecar(app)?;

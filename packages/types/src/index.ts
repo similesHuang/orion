@@ -184,7 +184,7 @@ export interface GenericAgentLike {
   isRunning: boolean;
   history: string[];
   abort(): void;
-  putTask(query: string, source?: string): TaskQueueLike;
+  putTask(query: string, source?: string, cwd?: string): TaskQueueLike;
   nextLlm(n?: number): void;
   listLlms(): string;
   llmName: string;
