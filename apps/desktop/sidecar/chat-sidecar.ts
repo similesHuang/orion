@@ -864,10 +864,29 @@ async function main(): Promise<void> {
           const prompt = buildPrompt(q)
           const queue = requestAgent.putTask(prompt, 'desktop', targetCwd)
 
+          let lastError = ''
+          let idleTicks = 0
           while (requestState.running) {
             const item = await queue.get(true, 3)
-            if (!item) continue
-            if (item.next) consumeYield(item.next)
+            if (!item) {
+              // No output for a tick. If the agent has stopped running and the
+              // queue has drained, the task ended without pushing a terminal
+              // 'done' (e.g. an error path that only yielded 'error'). Close the
+              // stream ourselves so the UI never spins forever.
+              if (!requestAgent.isRunning) {
+                idleTicks += 1
+                if (idleTicks >= 2) {
+                  emit('done', JSON.stringify({ text: fullText || lastError || '任务已结束' }))
+                  break
+                }
+              }
+              continue
+            }
+            idleTicks = 0
+            if (item.next) {
+              if (item.next.kind === 'error') lastError = item.next.message
+              consumeYield(item.next)
+            }
             if (item.done) {
               fullText = item.done
               emit('done', JSON.stringify({ text: item.done }))
