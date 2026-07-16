@@ -580,9 +580,16 @@ async function main(): Promise<void> {
           const mykey = payload?.mykey && typeof payload.mykey === 'object' ? payload.mykey : {}
           const snapshot = exportSnapshot(agent)
 
+          // MERGE with the on-disk config rather than overwrite. A partial
+          // payload (e.g. when the panel only ever loaded some fields) must
+          // never wipe keys it didn't include — that once erased LLM config.
+          const mergedEnv: Dict<string> = { ...readEnvConfig() }
+          for (const [key, value] of Object.entries(env)) mergedEnv[key] = String(value ?? '')
+          const mergedMykey: Dict<unknown> = { ...readMykeyConfig(), ...mykey }
+
           stopActiveTasks(activeRequests)
-          writeEnvConfig(Object.fromEntries(Object.entries(env).map(([key, value]) => [key, String(value ?? '')])))
-          writeMykeyConfig(mykey)
+          writeEnvConfig(mergedEnv)
+          writeMykeyConfig(mergedMykey)
           hydrateProcessEnv()
           rebuildAgent(snapshot)
 
