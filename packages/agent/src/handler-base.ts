@@ -25,6 +25,18 @@ export interface HandlerParent {
   taskDir?: string;
   verbose?: boolean;
   _turnEndHooks?: Record<string, (ctx: Record<string, unknown>) => void>;
+  approveToolCall?: (
+    toolName: string,
+    args: Record<string, unknown>
+  ) => Promise<'allow' | 'deny'>;
+}
+
+/** Thrown by toolBeforeCallback when the user declines a tool call. */
+export class ToolDeniedError extends Error {
+  constructor(toolName: string) {
+    super(`用户拒绝执行工具 ${toolName}`);
+    this.name = 'ToolDeniedError';
+  }
 }
 
 export class GenericAgentHandler extends BaseHandler {
@@ -39,6 +51,17 @@ export class GenericAgentHandler extends BaseHandler {
     this.parent = parent;
     this.cwd = cwd;
     this.historyInfo = lastHistory;
+  }
+
+  override async toolBeforeCallback(
+    toolName: string,
+    args: Record<string, unknown>,
+    _response: LLMResponse
+  ): Promise<void> {
+    const gate = this.parent.approveToolCall;
+    if (!gate) return;
+    const decision = await gate(toolName, args);
+    if (decision === 'deny') throw new ToolDeniedError(toolName);
   }
 
   private getAbsPath(p: string): string {

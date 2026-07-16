@@ -30,6 +30,7 @@ export type ChatAction =
   | { type: 'addTurn'; sessionId: string; taskId: string; turn: Turn }
   | { type: 'appendBlock'; sessionId: string; taskId: string; turnId: string; block: Block }
   | { type: 'updateToolBlock'; sessionId: string; taskId: string; turnId: string; stepId: string; patch: Partial<TimelineStep> }
+  | { type: 'updateApprovalBlock'; sessionId: string; taskId: string; turnId: string; approvalId: string; status: 'allowed' | 'denied' }
   | { type: 'setTaskStatus'; sessionId: string; taskId: string; status: TaskStatus }
   | { type: 'setTaskBackendState'; sessionId: string; taskId: string; backendState: BackendSnapshot | null }
 
@@ -87,6 +88,16 @@ function updateToolBlockInTurn(turn: Turn, stepId: string, patch: Partial<Timeli
         kind: 'tool',
         step: { ...block.step, ...patch, finishedAt, durationMs: finishedAt - block.step.startedAt },
       }
+    }),
+  }
+}
+
+function updateApprovalInTurn(turn: Turn, approvalId: string, status: 'allowed' | 'denied'): Turn {
+  return {
+    ...turn,
+    blocks: turn.blocks.map((block) => {
+      if (block.kind !== 'approval' || block.approval.approvalId !== approvalId) return block
+      return { kind: 'approval', approval: { ...block.approval, status } }
     }),
   }
 }
@@ -243,6 +254,23 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
               ...task,
               turns: task.turns.map((turn) =>
                 turn.id === action.turnId ? updateToolBlockInTurn(turn, action.stepId, action.patch) : turn
+              ),
+              updatedAt: Date.now(),
+            }
+          }),
+        })
+      )
+
+    case 'updateApprovalBlock':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) => {
+            if (task.id !== action.taskId) return task
+            return {
+              ...task,
+              turns: task.turns.map((turn) =>
+                turn.id === action.turnId ? updateApprovalInTurn(turn, action.approvalId, action.status) : turn
               ),
               updatedAt: Date.now(),
             }

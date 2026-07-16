@@ -6,6 +6,7 @@ import type { Turn } from '../types'
 interface TurnViewProps {
   turn: Turn
   isStreaming?: boolean
+  onApproval: (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => void
 }
 
 function Avatar({ role }: { role: Turn['role'] }): ReactElement {
@@ -23,7 +24,7 @@ function Avatar({ role }: { role: Turn['role'] }): ReactElement {
   )
 }
 
-export function TurnView({ turn, isStreaming }: TurnViewProps): ReactElement {
+export function TurnView({ turn, isStreaming, onApproval }: TurnViewProps): ReactElement {
   return (
     <div className={`turn turn--${turn.role}`}>
       <div className="turn-gutter">
@@ -40,7 +41,11 @@ export function TurnView({ turn, isStreaming }: TurnViewProps): ReactElement {
         <div className="turn-blocks">
           {turn.blocks.map((block, index) => (
             <div key={`${block.kind}-${index}`} className={`block block--${block.kind}`}>
-              <BlockRenderer block={block} isStreaming={isStreaming && index === turn.blocks.length - 1} />
+              <BlockRenderer
+                block={block}
+                isStreaming={isStreaming && index === turn.blocks.length - 1}
+                onApproval={onApproval}
+              />
             </div>
           ))}
         </div>

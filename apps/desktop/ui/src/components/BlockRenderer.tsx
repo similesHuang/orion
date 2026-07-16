@@ -1,7 +1,60 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { MarkdownBlock } from '../markdown'
 import { formatDuration } from '../utils'
-import type { Block, TimelineStep } from '../types'
+import type { ApprovalRequest, Block, TimelineStep } from '../types'
+
+type ApprovalHandler = (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => void
+
+const RISK_LABEL: Record<string, string> = {
+  code_run: '执行命令',
+  file_write: '写入文件',
+  file_patch: '修改文件',
+}
+
+function approvalPreview(toolName: string, args: Record<string, unknown>): string {
+  const s = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : '')
+  if (toolName === 'code_run') return s('command') || s('cmd') || s('code')
+  return s('path') || s('file') || s('filename')
+}
+
+function ApprovalBlockView({
+  approval,
+  onApproval,
+}: {
+  approval: ApprovalRequest
+  onApproval: ApprovalHandler
+}): ReactElement {
+  const label = RISK_LABEL[approval.toolName] || approval.toolName
+  const preview = approvalPreview(approval.toolName, approval.args)
+  const decided = approval.status !== 'pending'
+
+  return (
+    <div className={`approval approval--${approval.status}`}>
+      <div className="approval-head">
+        <span className="approval-icon" aria-hidden="true">⚿</span>
+        <span className="approval-title">
+          {approval.status === 'pending' && <>请求执行 <b>{label}</b></>}
+          {approval.status === 'allowed' && <>已批准 <b>{label}</b></>}
+          {approval.status === 'denied' && <>已拒绝 <b>{label}</b></>}
+        </span>
+      </div>
+      {preview && <pre className="approval-preview">{preview}</pre>}
+      {!decided && (
+        <div className="approval-actions">
+          <button type="button" className="approval-btn approval-btn--allow" onClick={() => onApproval(approval.approvalId, 'allow', false)}>
+            批准
+          </button>
+          <button type="button" className="approval-btn approval-btn--session" onClick={() => onApproval(approval.approvalId, 'allow', true)}>
+            本次会话都允许
+          </button>
+          <button type="button" className="approval-btn approval-btn--deny" onClick={() => onApproval(approval.approvalId, 'deny', false)}>
+            拒绝
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Human-facing label + one-line summary for a tool call, keyed on tool name. */
 function describeTool(step: TimelineStep): { label: string; detail: string } {
@@ -140,7 +193,15 @@ function DiffBlockView({ block }: { block: Extract<Block, { kind: 'diff' }> }): 
   )
 }
 
-export function BlockRenderer({ block, isStreaming }: { block: Block; isStreaming?: boolean }): ReactElement {
+export function BlockRenderer({
+  block,
+  isStreaming,
+  onApproval,
+}: {
+  block: Block
+  isStreaming?: boolean
+  onApproval: ApprovalHandler
+}): ReactElement {
   switch (block.kind) {
     case 'text':
       return <MarkdownBlock text={block.content} isStreaming={isStreaming} />
@@ -148,6 +209,8 @@ export function BlockRenderer({ block, isStreaming }: { block: Block; isStreamin
       return <ThoughtBlockView content={block.content} isStreaming={isStreaming} />
     case 'tool':
       return <ToolBlockView step={block.step} />
+    case 'approval':
+      return <ApprovalBlockView approval={block.approval} onApproval={onApproval} />
     case 'diff':
       return <DiffBlockView block={block} />
     case 'terminal':

@@ -3,13 +3,16 @@ import { TurnView } from './TurnView'
 import { migrateMessagesToTask } from '../utils'
 import type { ChatSession, Task } from '../types'
 
+type ApprovalHandler = (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => void
+
 interface TaskCardProps {
   task: Task
   isStreaming: boolean
   streamingTurnId: string | null
+  onApproval: ApprovalHandler
 }
 
-function TaskCard({ task, isStreaming, streamingTurnId }: TaskCardProps): ReactElement {
+function TaskCard({ task, isStreaming, streamingTurnId, onApproval }: TaskCardProps): ReactElement {
   return (
     <article className={`task-card task-card--${task.status}`}>
       <header className="task-header">
@@ -22,6 +25,7 @@ function TaskCard({ task, isStreaming, streamingTurnId }: TaskCardProps): ReactE
             key={turn.id}
             turn={turn}
             isStreaming={isStreaming && turn.id === streamingTurnId && index === task.turns.length - 1}
+            onApproval={onApproval}
           />
         ))}
       </div>
@@ -33,9 +37,10 @@ interface TaskFeedProps {
   session: ChatSession
   streamingTaskId: string | null
   streamingTurnId: string | null
+  onApproval: ApprovalHandler
 }
 
-export function TaskFeed({ session, streamingTaskId, streamingTurnId }: TaskFeedProps): ReactElement {
+export function TaskFeed({ session, streamingTaskId, streamingTurnId, onApproval }: TaskFeedProps): ReactElement {
   const tasks = useMemo(() => {
     const effectiveTasks =
       session.tasks.length > 0
@@ -64,6 +69,7 @@ export function TaskFeed({ session, streamingTaskId, streamingTurnId }: TaskFeed
           task={task}
           isStreaming={task.id === streamingTaskId}
           streamingTurnId={streamingTurnId}
+          onApproval={onApproval}
         />
       ))}
     </div>

@@ -18,6 +18,7 @@ export const PRIMARY_MODEL_FIELDS: FieldSpec[] = [
   { scope: 'env', key: 'LLM_STREAM', label: '流式输出', placeholder: 'true / false' },
   { scope: 'env', key: 'LLM_TEMPERATURE', label: '温度', placeholder: '1' },
   { scope: 'env', key: 'LLM_MAX_TOKENS', label: '最大输出 Token', placeholder: '8192' },
+  { scope: 'env', key: 'ORION_TOOL_APPROVAL', label: '工具执行审批', placeholder: 'true / false', hint: '开启后执行命令、写入/修改文件前会等待你确认（默认开启）' },
 ]
 
 export const GATEWAY_SPECS: GatewayUiSpec[] = [

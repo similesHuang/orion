@@ -111,6 +111,19 @@ export async function loadCommands(): Promise<CommandSpec[]> {
   return fetchJson<CommandSpec[]>('/api/commands')
 }
 
+export async function approveTool(
+  requestId: string,
+  approvalId: string,
+  decision: 'allow' | 'deny',
+  remember: boolean
+): Promise<void> {
+  await fetchJson('/api/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, approvalId, decision, remember }),
+  })
+}
+
 export async function pingSidecar(): Promise<DiagnosticsPayload> {
   return fetchJson<DiagnosticsPayload>('/api/diagnostics')
 }

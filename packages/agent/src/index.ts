@@ -15,7 +15,7 @@ import * as costTracker from './cost-tracker.js';
 import { GenericAgentHandler, HandlerParent } from './handler-base.js';
 
 export type { BaseSession, Message, TaskQueueLike, GenericAgentLike, AgentYield } from '@orion/types';
-export { GenericAgentHandler, HandlerParent } from './handler-base.js';
+export { GenericAgentHandler, HandlerParent, ToolDeniedError } from './handler-base.js';
 export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from './agent-loop.js';
 export * as ultraplan from './ultraplan.js';
 export * as costTracker from './cost-tracker.js';
@@ -131,6 +131,12 @@ type TaskItem = {
   output: { next?: AgentYield; done?: string; source: string }[];
 };
 
+export type ToolApprovalDecision = 'allow' | 'deny';
+export type ToolApprovalFn = (
+  toolName: string,
+  args: Record<string, unknown>
+) => Promise<ToolApprovalDecision>;
+
 export interface GenericAgentOptions {
   cwd?: string;
 }
@@ -150,6 +156,8 @@ export class GenericAgent {
   taskQueue: TaskItem[] = [];
   processing = false;
   bannedTools: string[] = [];
+  /** Optional gate invoked before each tool runs. Undefined = allow everything. */
+  approveToolCall?: ToolApprovalFn;
 
   constructor(options?: GenericAgentOptions) {
     this.sessions = loadSessionsFresh();
@@ -312,6 +320,7 @@ export class GenericAgent {
     const parent: HandlerParent = {
       taskDir: this.taskDir,
       verbose: this.verbose,
+      approveToolCall: this.approveToolCall,
     };
     const handler = new GenericAgentHandler(parent, this.history, taskCwd);
     if (this.handler?.working.key_info) {

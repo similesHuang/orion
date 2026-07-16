@@ -119,11 +119,42 @@ const KNOWN_ENV_ORDER = [
   'LLM_THINKING_BUDGET_TOKENS',
   'LLM_FAKE_CC_SYSTEM_PROMPT',
   'LLM_USER_AGENT',
+  'ORION_TOOL_APPROVAL',
   'FEISHU_PORT',
 ]
 
 let agent: GenericAgent | null = null
 let agentIssue: string | null = null
+
+/** Tools that must be approved by the user before running. Everything else auto-allows. */
+const HIGH_RISK_TOOLS = new Set(['code_run', 'file_write', 'file_patch'])
+
+function toolApprovalEnabled(): boolean {
+  // On by default; users disable via ORION_TOOL_APPROVAL=false in settings/.env.
+  const raw = (process.env.ORION_TOOL_APPROVAL ?? readEnvConfig().ORION_TOOL_APPROVAL ?? '').toLowerCase()
+  return raw !== 'false' && raw !== '0' && raw !== 'off'
+}
+
+interface PendingApproval {
+  toolName: string
+  resolve: (decision: 'allow' | 'deny') => void
+}
+
+/** Per-request approval waiters, keyed by requestId then a per-call approvalId. */
+const pendingApprovals = new Map<string, Map<string, PendingApproval>>()
+
+/** Per-request bridge so /api/approve can resolve a specific waiter. */
+type ApprovalResolver = (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => boolean
+const approvalResolvers = new Map<string, ApprovalResolver>()
+
+function resolveAllPending(requestId: string, decision: 'allow' | 'deny'): void {
+  const forReq = pendingApprovals.get(requestId)
+  if (forReq) {
+    for (const p of forReq.values()) p.resolve(decision)
+    pendingApprovals.delete(requestId)
+  }
+  approvalResolvers.delete(requestId)
+}
 
 function findProjectRoot(startDir: string): string {
   let dir = path.resolve(startDir)
@@ -166,10 +197,17 @@ function summarizeToolResult(toolName: string, content: unknown): string {
   if (typeof content === 'object') {
     const obj = content as Record<string, unknown>
     if (toolName === 'code_run') {
-      const exitCode = obj.exit_code ?? '?'
+      const msg = typeof obj.msg === 'string' ? obj.msg.trim() : ''
       const stdout = typeof obj.stdout === 'string' ? obj.stdout : ''
+      // When exit_code is null the command never actually ran (disabled shell,
+      // unsupported type, spawn failure). Surface the handler's msg instead of
+      // a bare "exit=?" that hides the real reason.
+      if (obj.exit_code == null) {
+        return `${prefix}${msg || (obj.status === 'error' ? '执行失败（命令未运行）' : '命令未产生退出码')}`
+      }
       const summary = stdout.length > 200 ? `${stdout.slice(0, 200)} ...` : stdout
-      return `${prefix}exit=${exitCode} ${summary}`
+      const tail = summary || msg
+      return `${prefix}exit=${obj.exit_code}${tail ? ` ${tail}` : ''}`
     }
     if (toolName === 'file_write' || toolName === 'file_patch') {
       const bytes = typeof obj.writed_bytes === 'number' ? obj.writed_bytes : '?'
@@ -434,6 +472,10 @@ function sseEvent(res: http.ServerResponse, eventName: string, data: string): vo
 
 function stopActiveTasks(activeRequests: Map<string, { res: http.ServerResponse; state: ActiveRequestState }>): void {
   if (agent) agent.abort()
+  // Release any tools blocked on approval so aborting can actually unwind them.
+  for (const requestId of [...pendingApprovals.keys(), ...approvalResolvers.keys()]) {
+    resolveAllPending(requestId, 'deny')
+  }
   for (const { res, state } of activeRequests.values()) {
     state.running = false
     state.agent?.abort()
@@ -608,6 +650,26 @@ async function main(): Promise<void> {
       return
     }
 
+    if (url.pathname === '/api/approve' && req.method === 'POST') {
+      void (async () => {
+        try {
+          const payload = (await readJsonBody(req)) as
+            | { requestId?: string; approvalId?: string; decision?: string; remember?: boolean }
+            | null
+          const requestId = payload?.requestId || ''
+          const approvalId = payload?.approvalId || ''
+          const decision = payload?.decision === 'deny' ? 'deny' : 'allow'
+          const remember = !!payload?.remember
+          const resolver = approvalResolvers.get(requestId)
+          const ok = resolver ? resolver(approvalId, decision, remember) : false
+          json(res, 200, { ok }, cors)
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
+        }
+      })()
+      return
+    }
+
     if (url.pathname === '/api/session/export' && req.method === 'GET') {
       json(res, 200, exportSnapshot(agent), cors)
       return
@@ -676,11 +738,52 @@ async function main(): Promise<void> {
       req.on('close', () => {
         requestState.running = false
         activeRequests.delete(requestId)
+        // Unblock any tool waiting on approval so the agent loop can unwind.
+        resolveAllPending(requestId, 'deny')
       })
 
       const emit = (eventName: string, data: string) => {
         sseEvent(res, eventName, data)
       }
+
+      // Tool approval gate. High-risk tools pause here and wait for the UI to
+      // POST /api/approve; low-risk tools and the disabled setting auto-allow.
+      // "allow for this session" is tracked per request via sessionAllowed.
+      const sessionAllowed = new Set<string>()
+      requestAgent.approveToolCall = async (toolName, args) => {
+        if (!requestState.running) return 'deny'
+        if (!toolApprovalEnabled()) return 'allow'
+        if (!HIGH_RISK_TOOLS.has(toolName)) return 'allow'
+        if (sessionAllowed.has(toolName)) return 'allow'
+
+        const approvalId = crypto.randomUUID()
+        return await new Promise<'allow' | 'deny'>((resolve) => {
+          let forReq = pendingApprovals.get(requestId)
+          if (!forReq) {
+            forReq = new Map()
+            pendingApprovals.set(requestId, forReq)
+          }
+          forReq.set(approvalId, {
+            toolName,
+            resolve: (decision) => {
+              forReq!.delete(approvalId)
+              resolve(decision)
+            },
+          })
+          emit(
+            'tool_approval',
+            JSON.stringify({ requestId, approvalId, toolName, args: args ?? {} })
+          )
+        })
+      }
+      // Bridge the /api/approve endpoint to this request's waiters.
+      approvalResolvers.set(requestId, (approvalId, decision, remember) => {
+        const waiter = pendingApprovals.get(requestId)?.get(approvalId)
+        if (!waiter) return false
+        if (remember && decision === 'allow') sessionAllowed.add(waiter.toolName)
+        waiter.resolve(decision)
+        return true
+      })
 
       // Keep-alive to prevent UI from timing out during long tool calls
       const pingInterval = setInterval(() => {
@@ -750,6 +853,7 @@ async function main(): Promise<void> {
         } finally {
           clearInterval(pingInterval)
           activeRequests.delete(requestId)
+          resolveAllPending(requestId, 'deny')
           res.end()
           // Sync any session history changes back to the global agent only when idle
           if (activeRequests.size === 0) {

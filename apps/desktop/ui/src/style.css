@@ -583,6 +583,60 @@ body { background: var(--desk); }
 
 .block-summary { padding: 11px 13px; border-radius: var(--r-md); background: var(--agent-soft); border: 1px solid var(--agent-glow); }
 
+/* ── Tool approval ── */
+
+.approval {
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  padding: 12px 13px;
+}
+.approval--pending {
+  border-color: var(--agent-glow);
+  box-shadow: 0 0 0 1px var(--agent-soft);
+  background: linear-gradient(180deg, var(--agent-soft), transparent), var(--surface);
+}
+.approval--denied { opacity: 0.72; }
+
+.approval-head { display: flex; align-items: center; gap: 8px; }
+.approval-icon { color: var(--agent); font-size: 15px; }
+.approval-title { font-size: 13.5px; color: var(--ink); }
+.approval-title b { font-weight: 680; }
+.approval--allowed .approval-icon { color: var(--ok); }
+.approval--denied .approval-icon { color: var(--ink-mute); }
+
+.approval-preview {
+  margin: 9px 0 0;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: #131417;
+  border: 1px solid var(--line);
+  color: #e6c9a8;
+  font: 12px/1.55 var(--mono);
+  overflow: auto;
+  max-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approval-actions { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+.approval-btn {
+  border: 1px solid var(--line-strong);
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, filter 120ms ease;
+}
+.approval-btn--allow { background: var(--agent); color: #131417; border-color: var(--agent); }
+.approval-btn--allow:hover { filter: brightness(1.08); }
+.approval-btn--session:hover { border-color: var(--agent-glow); color: var(--agent); background: var(--agent-soft); }
+.approval-btn--deny:hover { border-color: rgba(242, 119, 122, 0.5); color: var(--error); background: rgba(242, 119, 122, 0.1); }
+
 /* ── Empty state ── */
 
 .empty-state { margin: auto; text-align: center; padding: 40px 32px; max-width: 460px; }

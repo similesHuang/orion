@@ -10,6 +10,14 @@ export type Block =
   | { kind: 'terminal'; command: string; output: string; exitCode?: number }
   | { kind: 'summary'; content: string }
   | { kind: 'error'; content: string }
+  | { kind: 'approval'; approval: ApprovalRequest }
+
+export interface ApprovalRequest {
+  approvalId: string
+  toolName: string
+  args: Record<string, unknown>
+  status: 'pending' | 'allowed' | 'denied'
+}
 
 export interface Turn {
   id: string

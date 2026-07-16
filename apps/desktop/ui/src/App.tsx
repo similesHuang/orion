@@ -48,6 +48,7 @@ import {
   sessionPreview,
 } from './store'
 import {
+  approveTool,
   exportBackendSnapshot,
   importBackendSnapshot,
   loadCommands as fetchCommands,
@@ -181,6 +182,10 @@ export function App(): ReactElement {
   const messagesRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const rafRef = useRef<number | null>(null)
+  // approvalId -> where the approval block lives + which request to answer
+  const approvalCtxRef = useRef(
+    new Map<string, { requestId: string; sessionId: string; taskId: string; turnId: string }>()
+  )
 
   const streamingRef = useRef(streaming)
   const activeSessionIdRef = useRef(chatState.activeSessionId)
@@ -790,6 +795,25 @@ export function App(): ReactElement {
                   patch: { status, resultSummary: summary },
                 })
               }
+            } else if (event.event === 'tool_approval') {
+              flushPending()
+              const { requestId, approvalId, toolName, args } = JSON.parse(event.data)
+              approvalCtxRef.current.set(approvalId, {
+                requestId,
+                sessionId: currentSessionId,
+                taskId: currentTaskId,
+                turnId: activeTurnId,
+              })
+              dispatch({
+                type: 'appendBlock',
+                sessionId: currentSessionId,
+                taskId: currentTaskId,
+                turnId: activeTurnId,
+                block: {
+                  kind: 'approval',
+                  approval: { approvalId, toolName, args: args ?? {}, status: 'pending' },
+                },
+              })
             } else if (event.event === 'error') {
               flushPending()
               const { message } = JSON.parse(event.data)
@@ -862,6 +886,28 @@ export function App(): ReactElement {
     closeStream()
     void ping()
   }, [closeStream, ping])
+
+  const handleApproval = useCallback(
+    async (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => {
+      const ctx = approvalCtxRef.current.get(approvalId)
+      if (!ctx) return
+      dispatch({
+        type: 'updateApprovalBlock',
+        sessionId: ctx.sessionId,
+        taskId: ctx.taskId,
+        turnId: ctx.turnId,
+        approvalId,
+        status: decision === 'allow' ? 'allowed' : 'denied',
+      })
+      approvalCtxRef.current.delete(approvalId)
+      try {
+        await approveTool(ctx.requestId, approvalId, decision, remember)
+      } catch (error) {
+        addSystemMessage(`审批发送失败: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    },
+    [addSystemMessage]
+  )
 
   const handleLlmChange = useCallback(
     async (event: FormEvent<HTMLSelectElement>) => {
@@ -1360,6 +1406,7 @@ export function App(): ReactElement {
                   session={session}
                   streamingTaskId={streamingTaskId}
                   streamingTurnId={streamingTurnId}
+                  onApproval={handleApproval}
                 />
               )}
             </section>
