@@ -120,6 +120,7 @@ const KNOWN_ENV_ORDER = [
   'LLM_FAKE_CC_SYSTEM_PROMPT',
   'LLM_USER_AGENT',
   'ORION_TOOL_APPROVAL',
+  'ORION_ALLOW_SHELL',
   'FEISHU_PORT',
 ]
 
@@ -326,6 +327,24 @@ function readEnvConfig(): Dict<string> {
   return {}
 }
 
+/**
+ * Push .env values into process.env so settings that are read directly via
+ * process.env deep in the tool layer (e.g. ORION_ALLOW_SHELL) take effect
+ * without restarting the sidecar. Values already set in the real environment
+ * win, matching loadEnv()'s precedence.
+ */
+function hydrateProcessEnv(): void {
+  const fileEnv = readEnvConfig()
+  for (const [key, value] of Object.entries(fileEnv)) {
+    if (process.env[key] === undefined) process.env[key] = value
+    else if (key === 'ORION_ALLOW_SHELL' || key === 'ORION_TOOL_APPROVAL') {
+      // These toggles are owned by the settings panel; let the file value win
+      // so flipping them in the UI applies immediately.
+      process.env[key] = value
+    }
+  }
+}
+
 function readMykeyConfig(): Dict<unknown> {
   if (!fs.existsSync(MYKEY_PATH)) return {}
   try {
@@ -515,6 +534,7 @@ async function main(): Promise<void> {
     ensureSingleInstance(19536, 'Desktop')
   }
   costTracker.install()
+  hydrateProcessEnv()
 
   const keys = loadMykey(__filename)
   if (present(keys.claude_kimi_config)) {
@@ -563,6 +583,7 @@ async function main(): Promise<void> {
           stopActiveTasks(activeRequests)
           writeEnvConfig(Object.fromEntries(Object.entries(env).map(([key, value]) => [key, String(value ?? '')])))
           writeMykeyConfig(mykey)
+          hydrateProcessEnv()
           rebuildAgent(snapshot)
 
           json(res, 200, buildSettingsPayload(activeRequests.size), cors)

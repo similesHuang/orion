@@ -19,6 +19,7 @@ export const PRIMARY_MODEL_FIELDS: FieldSpec[] = [
   { scope: 'env', key: 'LLM_TEMPERATURE', label: '温度', placeholder: '1' },
   { scope: 'env', key: 'LLM_MAX_TOKENS', label: '最大输出 Token', placeholder: '8192' },
   { scope: 'env', key: 'ORION_TOOL_APPROVAL', label: '工具执行审批', placeholder: 'true / false', hint: '开启后执行命令、写入/修改文件前会等待你确认（默认开启）' },
+  { scope: 'env', key: 'ORION_ALLOW_SHELL', label: '允许 Shell 命令', placeholder: 'false', hint: '允许 agent 执行任意 bash/shell 命令。风险较高，默认关闭；建议同时开启工具执行审批' },
 ]
 
 export const GATEWAY_SPECS: GatewayUiSpec[] = [
