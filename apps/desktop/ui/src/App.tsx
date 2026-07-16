@@ -7,10 +7,9 @@ import {
   useState,
   type FormEvent,
   type ReactElement,
-  type ReactNode,
 } from 'react'
 import { confirm, open } from '@tauri-apps/plugin-dialog'
-import { Bubble, Sender, XProvider } from '@ant-design/x'
+import { Sender, XProvider } from '@ant-design/x'
 import {
   Badge,
   Button,
@@ -21,7 +20,6 @@ import {
   List,
   Menu,
   Space,
-  Spin,
   Tooltip,
   Typography,
   theme,
@@ -43,6 +41,7 @@ import {
 } from './constants'
 import {
   chatReducer,
+  flushState,
   loadState,
   maybeUpdateSessionTitle,
   saveState,
@@ -51,6 +50,8 @@ import {
 import {
   exportBackendSnapshot,
   importBackendSnapshot,
+  loadCommands as fetchCommands,
+  loadCost as fetchCost,
   loadModels as fetchModels,
   loadSettings as fetchSettings,
   pingSidecar,
@@ -67,128 +68,26 @@ import {
   closeWindow,
   getGitBranch,
 } from './api'
-import { Markdown } from './markdown'
 import {
   createProject,
   createSession,
-  formatDuration,
+  createTask,
+  createTurn,
+  formatTokens,
   formatUpdatedAt,
   parseListValue,
   parseSse,
   streamBuffer,
 } from './utils'
+import { TaskFeed } from './components/TaskFeed'
 import type {
+  CommandSpec,
+  CostStats,
   DiagnosticsPayload,
   FieldSpec,
   LlmOption,
   SettingsState,
-  TimelineStep,
-  UiMessage,
 } from './types'
-
-function ThoughtBubble({ children }: { children: string }): ReactElement {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="thought-bubble">
-      <button className="thought-toggle" onClick={() => setOpen((v) => !v)}>
-        {open ? '隐藏思考' : '思考中…'}
-      </button>
-      {open && (
-        <div className="thought-content">
-          <Typography.Text type="secondary">{children}</Typography.Text>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ToolGroup({ turn, steps }: { turn: number; steps: TimelineStep[] }): ReactElement {
-  const [open, setOpen] = useState(false)
-  const running = steps.some((s) => s.status === 'running')
-  const done = steps.every((s) => s.status === 'done')
-  const status = running ? 'running' : done ? 'done' : 'error'
-  return (
-    <div className={`tool-group tool-group--${status}`}>
-      <button className="tool-group-toggle" onClick={() => setOpen((v) => !v)}>
-        {running && <Spin size="small" style={{ marginRight: 8 }} />}
-        Turn {turn} · {steps.length} 次操作 · {status}
-      </button>
-      {open && (
-        <div className="tool-group-body">
-          {steps.map((step) => (
-            <div key={step.id} className="tool-step">
-              <Space size={8}>
-                <Typography.Text code>{step.toolName}</Typography.Text>
-                <Typography.Text type="secondary">{formatDuration(step.durationMs)}</Typography.Text>
-              </Space>
-              <div>
-                <Typography.Text type="secondary">参数：</Typography.Text>
-                <Typography.Text code>{JSON.stringify(step.args)}</Typography.Text>
-              </div>
-              {step.resultSummary && (
-                <div>
-                  <Typography.Text type="secondary">结果：</Typography.Text>
-                  <Typography.Text>{step.resultSummary}</Typography.Text>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function renderMessageContent(message: UiMessage, isStreaming: boolean): ReactNode {
-  type Group =
-    | { kind: 'text'; content: string; startIdx: number }
-    | { kind: 'thought'; content: string; startIdx: number }
-    | { kind: 'tool_group'; turn: number; steps: TimelineStep[]; startIdx: number }
-
-  const groups: Group[] = []
-  for (const [unitIdx, unit] of message.units.entries()) {
-    if (unit.kind === 'text') {
-      const last = groups[groups.length - 1]
-      if (last && last.kind === 'text') {
-        last.content += unit.content
-      } else {
-        groups.push({ kind: 'text', content: unit.content, startIdx: unitIdx })
-      }
-    } else if (unit.kind === 'thought') {
-      const last = groups[groups.length - 1]
-      if (last && last.kind === 'thought') {
-        last.content += unit.content
-      } else {
-        groups.push({ kind: 'thought', content: unit.content, startIdx: unitIdx })
-      }
-    } else if (unit.kind === 'tool') {
-      const last = groups[groups.length - 1]
-      if (last && last.kind === 'tool_group' && last.turn === unit.step.turn) {
-        last.steps.push(unit.step)
-      } else {
-        groups.push({ kind: 'tool_group', turn: unit.step.turn, steps: [unit.step], startIdx: unitIdx })
-      }
-    }
-  }
-
-  if (groups.length === 0 && message.text) {
-    groups.push({ kind: 'text', content: message.text, startIdx: 0 })
-  }
-
-  return (
-    <>
-      {groups.map((group) => {
-        if (group.kind === 'text') {
-          return <Markdown key={`text-${group.startIdx}`} text={group.content} isStreaming={isStreaming} />
-        }
-        if (group.kind === 'thought') {
-          return <ThoughtBubble key={`thought-${group.startIdx}`}>{group.content}</ThoughtBubble>
-        }
-        return <ToolGroup key={`tool-${group.startIdx}-${group.turn}`} turn={group.turn} steps={group.steps} />
-      })}
-    </>
-  )
-}
 
 function settingsReducer(
   state: SettingsState,
@@ -268,15 +167,20 @@ export function App(): ReactElement {
   const [sidecarReady, setSidecarReady] = useState(false)
   const [agentReady, setAgentReady] = useState(false)
   const [streaming, setStreaming] = useState(false)
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
+  const [streamingTaskId, setStreamingTaskId] = useState<string | null>(null)
+  const [streamingTurnId, setStreamingTurnId] = useState<string | null>(null)
   const [llmOptions, setLlmOptions] = useState<LlmOption[]>([])
   const [selectedLlmLabel, setSelectedLlmLabel] = useState('模型未就绪')
   const [maximized, setMaximized] = useState(false)
+  const [cost, setCost] = useState<CostStats | null>(null)
+  const [commands, setCommands] = useState<CommandSpec[]>([])
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
   const healthTimerRef = useRef<number | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+  const rafRef = useRef<number | null>(null)
 
   const streamingRef = useRef(streaming)
   const activeSessionIdRef = useRef(chatState.activeSessionId)
@@ -312,6 +216,13 @@ export function App(): ReactElement {
     [chatState.sessions]
   )
 
+  const slashMatches = useMemo(() => {
+    const draft = session?.draft ?? ''
+    if (!draft.startsWith('/') || draft.includes(' ') || draft.includes('\n')) return []
+    const q = draft.toLowerCase()
+    return commands.filter((c) => c.command.toLowerCase().startsWith(q)).slice(0, 6)
+  }, [session?.draft, commands])
+
   const projectSessions = useCallback(
     (projectId: string) =>
       chatState.sessions
@@ -329,7 +240,8 @@ export function App(): ReactElement {
       sourceRef.current.abort()
       sourceRef.current = null
     }
-    setStreamingMessageId(null)
+    setStreamingTaskId(null)
+    setStreamingTurnId(null)
     setStreaming(false)
   }, [])
 
@@ -370,6 +282,11 @@ export function App(): ReactElement {
     } catch (_error) {
       setSidecarReady(false)
       setAgentReady(false)
+    }
+    try {
+      setCost(await fetchCost())
+    } catch {
+      // cost is best-effort; leave the last known value in place
     }
   }, [port, updateStatusFromDiagnostics])
 
@@ -451,6 +368,11 @@ export function App(): ReactElement {
 
         const diagnostics = await pingSidecar()
         updateStatusFromDiagnostics(diagnostics)
+        try {
+          setCommands(await fetchCommands())
+        } catch {
+          // command hints are optional
+        }
         await loadSettings(true)
         if (diagnostics.agent.ready) {
           const options = await fetchModels()
@@ -491,17 +413,28 @@ export function App(): ReactElement {
     void tryStart()
     return () => {
       if (healthTimerRef.current !== null) window.clearInterval(healthTimerRef.current)
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       closeStream()
-      saveState(chatState)
+      flushState(chatState)
     }
   }, [])
 
   useEffect(() => {
     saveState(chatState)
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+    // Only auto-scroll when the user is already parked near the bottom, so
+    // scrolling up to read earlier output during streaming isn't hijacked.
+    if (stickToBottomRef.current && messagesRef.current) {
+      const el = messagesRef.current
+      el.scrollTop = el.scrollHeight
     }
   }, [chatState])
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 80
+  }, [])
 
   const handleSwitchSession = useCallback(
     async (sessionId: string) => {
@@ -681,29 +614,24 @@ export function App(): ReactElement {
       dispatch({ type: 'renameCurrent', title: titleUpdate.title })
     }
 
-    dispatch({ type: 'addMessage', sessionId: session.id, role: 'user', text })
-    dispatch({ type: 'setDraft', sessionId: session.id, draft: '' })
+    const task = createTask(text.slice(0, 30) || '新任务', session.projectId)
+    const userTurn = createTurn('user')
+    userTurn.blocks.push({ kind: 'text', content: text })
+    const assistantTurn = createTurn('assistant', 1)
+    const taskWithTurns = { ...task, turns: [userTurn, assistantTurn] }
 
-    const assistantMessage: UiMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      role: 'assistant',
-      text: '',
-      thoughts: [],
-      units: [],
-      createdAt: Date.now(),
-    }
     const currentSessionId = session.id
-    const currentMessageId = assistantMessage.id
-    dispatch({
-      type: 'addMessage',
-      sessionId: currentSessionId,
-      role: 'assistant',
-      text: assistantMessage.text,
-      extras: { id: currentMessageId, thoughts: [], units: [] },
-    })
+    const currentTaskId = task.id
+    const currentAssistantTurnId = assistantTurn.id
+
+    dispatch({ type: 'addTask', sessionId: currentSessionId, task: taskWithTurns })
+    dispatch({ type: 'setActiveTask', sessionId: currentSessionId, taskId: currentTaskId })
+    dispatch({ type: 'setDraft', sessionId: currentSessionId, draft: '' })
+    stickToBottomRef.current = true
     closeStream()
 
-    setStreamingMessageId(currentMessageId)
+    setStreamingTaskId(currentTaskId)
+    setStreamingTurnId(currentAssistantTurnId)
     setStreaming(true)
 
     const params = new URLSearchParams()
@@ -718,12 +646,13 @@ export function App(): ReactElement {
     const resetSseTimeout = () => {
       if (sseTimeoutRef.current !== null) window.clearTimeout(sseTimeoutRef.current)
       sseTimeoutRef.current = window.setTimeout(() => {
-        if (streamingRef.current && currentMessageId) {
+        if (streamingRef.current && currentAssistantTurnId) {
           dispatch({
-            type: 'appendText',
+            type: 'appendBlock',
             sessionId: currentSessionId,
-            id: currentMessageId,
-            delta: '响应超时，连接已关闭',
+            taskId: currentTaskId,
+            turnId: currentAssistantTurnId,
+            block: { kind: 'error', content: '响应超时，连接已关闭' },
           })
         }
         closeStream()
@@ -734,13 +663,65 @@ export function App(): ReactElement {
     const controller = new AbortController()
     sourceRef.current = controller
 
-    const finishWithError = () => {
-      if (streamingRef.current && currentMessageId) {
+    const agentTurnIds = new Map<number, string>()
+    agentTurnIds.set(1, currentAssistantTurnId)
+    const stepToTurnId = new Map<string, string>()
+    // tracks which turn text/thought output should go to (follows the latest tool_call turn)
+    let activeTurnId = currentAssistantTurnId
+
+    // rAF-coalesced delta buffer. SSE emits many tiny text/thought chunks per
+    // second; instead of one dispatch per chunk we accumulate per (turn, kind)
+    // and flush a single merged dispatch on the next animation frame. This is
+    // the main fix for choppy, laggy reply rendering.
+    const pending = new Map<string, { turnId: string; kind: 'text' | 'thought'; content: string }>()
+
+    const flushPending = () => {
+      rafRef.current = null
+      if (pending.size === 0) return
+      for (const { turnId, kind, content } of pending.values()) {
         dispatch({
-          type: 'appendText',
+          type: 'appendBlock',
           sessionId: currentSessionId,
-          id: currentMessageId,
-          delta: '连接中断',
+          taskId: currentTaskId,
+          turnId,
+          block: { kind, content },
+        })
+      }
+      pending.clear()
+    }
+
+    const scheduleFlush = () => {
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(flushPending)
+      }
+    }
+
+    const enqueueDelta = (kind: 'text' | 'thought', turnId: string, content: string) => {
+      const key = `${turnId}:${kind}`
+      const existing = pending.get(key)
+      if (existing) existing.content += content
+      else pending.set(key, { turnId, kind, content })
+      scheduleFlush()
+    }
+
+    const ensureAgentTurn = (turnNumber: number): string => {
+      const existing = agentTurnIds.get(turnNumber)
+      if (existing) return existing
+      const newTurn = createTurn('assistant', turnNumber)
+      agentTurnIds.set(turnNumber, newTurn.id)
+      dispatch({ type: 'addTurn', sessionId: currentSessionId, taskId: currentTaskId, turn: newTurn })
+      return newTurn.id
+    }
+
+    const finishWithError = () => {
+      flushPending()
+      if (streamingRef.current && currentAssistantTurnId) {
+        dispatch({
+          type: 'appendBlock',
+          sessionId: currentSessionId,
+          taskId: currentTaskId,
+          turnId: currentAssistantTurnId,
+          block: { kind: 'error', content: '连接中断' },
         })
       }
       closeStream()
@@ -765,63 +746,81 @@ export function App(): ReactElement {
         for await (const event of streamBuffer(parseSse(reader))) {
           if (sourceRef.current !== controller) break
           resetSseTimeout()
-          if (!currentMessageId) continue
           try {
             if (event.event === 'text') {
               const { delta } = JSON.parse(event.data)
-              dispatch({
-                type: 'appendText',
-                sessionId: currentSessionId,
-                id: currentMessageId,
-                delta,
-              })
+              enqueueDelta('text', activeTurnId, delta)
             } else if (event.event === 'thought') {
               const { delta } = JSON.parse(event.data)
-              dispatch({
-                type: 'appendThought',
-                sessionId: currentSessionId,
-                id: currentMessageId,
-                delta,
-              })
+              enqueueDelta('thought', activeTurnId, delta)
             } else if (event.event === 'tool_call') {
+              flushPending()
               const { id, turn, toolName, args } = JSON.parse(event.data)
+              const turnId = ensureAgentTurn(turn ?? 1)
+              activeTurnId = turnId
+              stepToTurnId.set(id, turnId)
               dispatch({
-                type: 'addToolUnit',
+                type: 'appendBlock',
                 sessionId: currentSessionId,
-                id: currentMessageId,
-                step: {
-                  id,
-                  toolName,
-                  turn,
-                  args: args ?? {},
-                  status: 'running',
-                  startedAt: Date.now(),
+                taskId: currentTaskId,
+                turnId,
+                block: {
+                  kind: 'tool',
+                  step: {
+                    id,
+                    toolName,
+                    turn: turn ?? 1,
+                    args: args ?? {},
+                    status: 'running',
+                    startedAt: Date.now(),
+                  },
                 },
               })
             } else if (event.event === 'tool_result') {
+              flushPending()
               const { id, status, summary } = JSON.parse(event.data)
-              dispatch({
-                type: 'updateToolUnit',
-                sessionId: currentSessionId,
-                messageId: currentMessageId,
-                id,
-                patch: { status, resultSummary: summary },
-              })
+              const turnId = stepToTurnId.get(id)
+              if (turnId) {
+                dispatch({
+                  type: 'updateToolBlock',
+                  sessionId: currentSessionId,
+                  taskId: currentTaskId,
+                  turnId,
+                  stepId: id,
+                  patch: { status, resultSummary: summary },
+                })
+              }
             } else if (event.event === 'error') {
+              flushPending()
               const { message } = JSON.parse(event.data)
               dispatch({
-                type: 'appendText',
+                type: 'appendBlock',
                 sessionId: currentSessionId,
-                id: currentMessageId,
-                delta: `\n\`\`\`\n${message}\n\`\`\``,
+                taskId: currentTaskId,
+                turnId: currentAssistantTurnId,
+                block: { kind: 'error', content: message },
               })
             } else if (event.event === 'stop') {
+              flushPending()
               streamCompleted = true
+              dispatch({
+                type: 'setTaskStatus',
+                sessionId: currentSessionId,
+                taskId: currentTaskId,
+                status: 'error',
+              })
               closeStream()
               void ping()
               break
             } else if (event.event === 'done') {
+              flushPending()
               streamCompleted = true
+              dispatch({
+                type: 'setTaskStatus',
+                sessionId: currentSessionId,
+                taskId: currentTaskId,
+                status: 'done',
+              })
               closeStream()
               void persistActiveBackendState()
               void ping()
@@ -1072,17 +1071,17 @@ export function App(): ReactElement {
   const orionTheme = {
     algorithm: theme.darkAlgorithm,
     token: {
-      colorBgBase: '#0f1117',
-      colorBgContainer: '#161922',
-      colorBgElevated: '#1c1f2a',
-      colorTextBase: '#f1f5f9',
-      colorTextSecondary: '#64748b',
-      colorBorder: 'rgba(148, 163, 184, 0.12)',
-      colorPrimary: '#f59e0b',
-      colorPrimaryHover: '#fbbf24',
-      colorPrimaryActive: '#d97706',
-      colorLink: '#f59e0b',
-      colorLinkHover: '#fbbf24',
+      colorBgBase: '#16171a',
+      colorBgContainer: '#1e1f23',
+      colorBgElevated: '#26272c',
+      colorTextBase: '#eceae4',
+      colorTextSecondary: '#86837c',
+      colorBorder: 'rgba(236, 234, 228, 0.08)',
+      colorPrimary: '#4fd1c5',
+      colorPrimaryHover: '#6ee0d5',
+      colorPrimaryActive: '#3bb8ac',
+      colorLink: '#4fd1c5',
+      colorLinkHover: '#6ee0d5',
       borderRadius: 10,
       fontFamily:
         '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
@@ -1090,11 +1089,11 @@ export function App(): ReactElement {
     },
     components: {
       Button: {
-        colorPrimaryBg: '#f59e0b',
-        colorPrimaryText: '#0f1117',
+        colorPrimaryBg: '#4fd1c5',
+        colorPrimaryText: '#131417',
       },
       Badge: {
-        colorInfo: '#3b82f6',
+        colorInfo: '#4fd1c5',
       },
     },
   }
@@ -1267,6 +1266,17 @@ export function App(): ReactElement {
 
           <Layout.Content className="chat-main">
             <header className="window-bar">
+              <div className="workbench-status">
+                <span className={`status-dot ${agentReady ? 'ok' : sidecarReady ? 'warn' : 'off'}`} aria-hidden="true" />
+                <span className="status-model">{selectedLlmLabel}</span>
+                {cost && cost.totalTokens > 0 && (
+                  <span className="cost-hud" title={`${cost.requests} 次请求 · 缓存命中 ${cost.cacheHitRate.toFixed(0)}%`}>
+                    <span className="cost-metric">↑{formatTokens(cost.inputTokens)}</span>
+                    <span className="cost-metric">↓{formatTokens(cost.outputTokens)}</span>
+                    <span className="cost-metric cost-cache">⚡{cost.cacheHitRate.toFixed(0)}%</span>
+                  </span>
+                )}
+              </div>
               <div className="window-controls">
                 <button
                   className="window-btn"
@@ -1337,46 +1347,45 @@ export function App(): ReactElement {
               </div>
             </header>
 
-            <section ref={messagesRef} className="messages">
-              {session && session.messages.length === 0 && (
+            <section ref={messagesRef} className="messages" onScroll={handleMessagesScroll}>
+              {session && session.tasks.length === 0 && session.messages.length === 0 && (
                 <div className="empty-state">
-                  <div className="empty-constellation" aria-hidden="true">
-                    <span className="empty-star empty-star--1" />
-                    <span className="empty-star empty-star--2" />
-                    <span className="empty-star empty-star--3" />
-                    <span className="empty-star empty-star--4" />
-                    <span className="empty-star empty-star--5" />
-                    <span className="empty-star empty-star--6" />
-                    <span className="empty-line empty-line--1" />
-                    <span className="empty-line empty-line--2" />
-                    <span className="empty-line empty-line--3" />
-                  </div>
-                  <h2>设定航线</h2>
-                  <p>输入任务、命令或问题，Orion 会在本地 sidecar 中执行。会话会绑定到当前 Project 目录。</p>
+                  <div className="empty-constellation" aria-hidden="true" />
+                  <h2>交给我吧</h2>
+                  <p>说说你想做什么。读写文件、跑命令、查资料都行，我会在本地一步步做给你看。</p>
                 </div>
               )}
-              <Bubble.List
-                rootClassName="orion-bubble-list"
-                role={{
-                  user: { placement: 'end', variant: 'shadow' },
-                  ai: { placement: 'start', variant: 'borderless' },
-                  system: { placement: 'start', variant: 'borderless' },
-                }}
-                items={
-                  session?.messages.map((message) => {
-                    const isStreamingMessage = streaming && message.id === streamingMessageId
-                    return {
-                      key: message.id,
-                      role: message.role === 'assistant' ? 'ai' : message.role,
-                      content: message.text,
-                      contentRender: () => renderMessageContent(message, isStreamingMessage),
-                    }
-                  }) ?? []
-                }
-              />
+              {session && (
+                <TaskFeed
+                  session={session}
+                  streamingTaskId={streamingTaskId}
+                  streamingTurnId={streamingTurnId}
+                />
+              )}
             </section>
 
             <div className="composer-area">
+              {slashMatches.length > 0 && (
+                <div className="slash-hints">
+                  {slashMatches.map((c) => (
+                    <button
+                      key={c.command}
+                      type="button"
+                      className="slash-hint"
+                      onClick={() => {
+                        if (!session) return
+                        const filled = c.command.includes('[') || c.command.includes('<')
+                          ? `${c.command.split(' ')[0]} `
+                          : c.command
+                        dispatch({ type: 'setDraft', sessionId: session.id, draft: filled })
+                      }}
+                    >
+                      <span className="slash-cmd">{c.command}</span>
+                      <span className="slash-desc">{c.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <Sender
                 rootClassName="orion-sender"
                 value={session?.draft || ''}
@@ -1421,6 +1430,7 @@ export function App(): ReactElement {
               />
             </div>
           </Layout.Content>
+
         </Layout>
 
         <Drawer

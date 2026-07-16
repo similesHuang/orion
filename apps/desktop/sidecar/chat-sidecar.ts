@@ -5,7 +5,7 @@ import http from 'node:http'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { AgentChatMixin, buildDoneText, costTracker, ensureSingleInstance, loadMykey } from '@orion/chat'
+import { AgentChatMixin, buildDoneText, costTracker, ensureSingleInstance, loadMykey, HELP_COMMANDS } from '@orion/chat'
 import { AgentYield, GenericAgent } from '@orion/agent'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -547,6 +547,34 @@ async function main(): Promise<void> {
       } catch (error) {
         json(res, 503, { error: error instanceof Error ? error.message : String(error) }, cors)
       }
+      return
+    }
+
+    if (url.pathname === '/api/cost' && req.method === 'GET') {
+      try {
+        const stats = costTracker.getTracker('main')
+        const inputSide = stats.input + stats.cacheCreate + stats.cacheRead
+        json(
+          res,
+          200,
+          {
+            requests: stats.requests,
+            inputTokens: inputSide,
+            outputTokens: stats.output,
+            totalTokens: costTracker.totalTokens(stats),
+            cacheHitRate: costTracker.cacheHitRate(stats),
+            elapsedSeconds: costTracker.elapsedSeconds(stats),
+          },
+          cors
+        )
+      } catch (error) {
+        json(res, 200, { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheHitRate: 0, elapsedSeconds: 0, error: error instanceof Error ? error.message : String(error) }, cors)
+      }
+      return
+    }
+
+    if (url.pathname === '/api/commands' && req.method === 'GET') {
+      json(res, 200, HELP_COMMANDS.map(([command, description]) => ({ command, description })), cors)
       return
     }
 

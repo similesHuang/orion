@@ -1,4 +1,4 @@
-import type { ChatSession, Project, Role, UiMessage } from './types'
+import type { Block, ChatSession, Project, Role, Task, Turn, UiMessage } from './types'
 import { MAX_BUFFER_LEN } from './constants'
 
 export interface SseEvent {
@@ -111,11 +111,62 @@ export function createProject(projectPath: string, gitBranch: string | null = nu
   }
 }
 
+export function createTask(title = '新任务', _projectId: string | null = null): Task {
+  return {
+    id: uid('task'),
+    title,
+    status: 'running',
+    turns: [],
+    backendState: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+}
+
+export function createTurn(role: Role, agentTurn?: number): Turn {
+  return {
+    id: uid('turn'),
+    role,
+    agentTurn,
+    blocks: [],
+    createdAt: Date.now(),
+  }
+}
+
+function migrateUnitsToBlocks(units: UiMessage['units'], fallbackText: string): Block[] {
+  if (units.length === 0 && fallbackText) {
+    return [{ kind: 'text', content: fallbackText }]
+  }
+  return units.map((unit) => {
+    if (unit.kind === 'tool') return { kind: 'tool', step: unit.step }
+    return { kind: unit.kind, content: unit.content }
+  })
+}
+
+export function migrateMessagesToTask(messages: UiMessage[]): Task {
+  return {
+    id: uid('task'),
+    title: '历史消息',
+    status: 'done',
+    turns: messages.map((message) => ({
+      id: uid('turn'),
+      role: message.role,
+      blocks: migrateUnitsToBlocks(message.units, message.text),
+      createdAt: message.createdAt,
+    })),
+    backendState: null,
+    createdAt: messages[0]?.createdAt ?? Date.now(),
+    updatedAt: messages[messages.length - 1]?.createdAt ?? Date.now(),
+  }
+}
+
 export function createSession(title = '新会话', projectId: string | null = null): ChatSession {
   return {
     id: uid(),
     title,
     messages: [],
+    tasks: [],
+    activeTaskId: null,
     draft: '',
     updatedAt: Date.now(),
     backendState: null,
@@ -139,6 +190,12 @@ export function formatUpdatedAt(ts: number): string {
   return `${Math.floor(delta / 86_400_000)} 天前`
 }
 
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
+}
+
 export function formatDuration(ms?: number): string {
   if (!ms || ms < 0) return '进行中'
   if (ms < 1000) return `${ms}ms`
@@ -153,6 +210,8 @@ export function parseListValue(raw: string): string[] {
 }
 
 export function sessionPreview(session: ChatSession): string {
+  const lastTask = [...session.tasks].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  if (lastTask) return lastTask.title.replace(/\s+/g, ' ').slice(0, 48)
   const last = [...session.messages].reverse().find((message) => message.role !== 'system')
   return last?.text.replace(/\s+/g, ' ').slice(0, 48) || '空会话'
 }

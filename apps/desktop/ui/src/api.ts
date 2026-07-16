@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { BackendSnapshot, DiagnosticsPayload, LlmOption, SettingsPayload } from './types'
+import type { BackendSnapshot, CommandSpec, CostStats, DiagnosticsPayload, LlmOption, SettingsPayload } from './types'
 
 export let sidecarPort: number | null = null
 
@@ -101,6 +101,14 @@ export async function loadModels(): Promise<LlmOption[]> {
 
 export async function selectLlm(idx: number): Promise<void> {
   await fetchJson(`/api/llm/${idx}`, { method: 'POST' })
+}
+
+export async function loadCost(): Promise<CostStats> {
+  return fetchJson<CostStats>('/api/cost')
+}
+
+export async function loadCommands(): Promise<CommandSpec[]> {
+  return fetchJson<CommandSpec[]>('/api/commands')
 }
 
 export async function pingSidecar(): Promise<DiagnosticsPayload> {

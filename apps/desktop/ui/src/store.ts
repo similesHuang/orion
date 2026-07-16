@@ -1,6 +1,6 @@
 import { STORAGE_KEY } from './constants'
 import { createSession, sanitizeMessage, sessionPreview } from './utils'
-import type { BackendSnapshot, ChatSession, Project, RenderUnit, Role, TimelineStep, UiMessage, UiState } from './types'
+import type { BackendSnapshot, Block, ChatSession, Project, RenderUnit, Role, Task, TaskStatus, TimelineStep, Turn, UiMessage, UiState } from './types'
 
 export type ChatAction =
   | { type: 'init'; state: UiState }
@@ -25,6 +25,13 @@ export type ChatAction =
   | { type: 'bindCurrentProject'; projectId: string }
   | { type: 'unbindCurrentProject' }
   | { type: 'toggleExpandProject'; projectId: string }
+  | { type: 'addTask'; sessionId: string; task: Task }
+  | { type: 'setActiveTask'; sessionId: string; taskId: string }
+  | { type: 'addTurn'; sessionId: string; taskId: string; turn: Turn }
+  | { type: 'appendBlock'; sessionId: string; taskId: string; turnId: string; block: Block }
+  | { type: 'updateToolBlock'; sessionId: string; taskId: string; turnId: string; stepId: string; patch: Partial<TimelineStep> }
+  | { type: 'setTaskStatus'; sessionId: string; taskId: string; status: TaskStatus }
+  | { type: 'setTaskBackendState'; sessionId: string; taskId: string; backendState: BackendSnapshot | null }
 
 export function currentSession(state: UiState): ChatSession {
   if (!state.sessions.length) {
@@ -55,6 +62,33 @@ function mapProject(state: UiState, projectId: string, fn: (project: Project) =>
 
 function touch(session: ChatSession): ChatSession {
   return { ...session, updatedAt: Date.now() }
+}
+
+function appendBlockToTurn(turn: Turn, block: Block): Turn {
+  const blocks = [...turn.blocks]
+  const last = blocks[blocks.length - 1]
+  if (block.kind === 'text' && last?.kind === 'text') {
+    blocks[blocks.length - 1] = { kind: 'text', content: last.content + block.content }
+  } else if (block.kind === 'thought' && last?.kind === 'thought') {
+    blocks[blocks.length - 1] = { kind: 'thought', content: last.content + block.content }
+  } else {
+    blocks.push(block)
+  }
+  return { ...turn, blocks }
+}
+
+function updateToolBlockInTurn(turn: Turn, stepId: string, patch: Partial<TimelineStep>): Turn {
+  return {
+    ...turn,
+    blocks: turn.blocks.map((block) => {
+      if (block.kind !== 'tool' || block.step.id !== stepId) return block
+      const finishedAt = patch.finishedAt ?? Date.now()
+      return {
+        kind: 'tool',
+        step: { ...block.step, ...patch, finishedAt, durationMs: finishedAt - block.step.startedAt },
+      }
+    }),
+  }
 }
 
 export function chatReducer(state: UiState, action: ChatAction): UiState {
@@ -156,6 +190,86 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
         touch({ ...session, backendState: action.backendState })
       )
 
+    case 'addTask':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: [...session.tasks, action.task],
+          activeTaskId: action.task.id,
+        })
+      )
+
+    case 'setActiveTask':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({ ...session, activeTaskId: action.taskId })
+      )
+
+    case 'addTurn':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) =>
+            task.id === action.taskId
+              ? { ...task, turns: [...task.turns, action.turn], updatedAt: Date.now() }
+              : task
+          ),
+        })
+      )
+
+    case 'appendBlock':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) => {
+            if (task.id !== action.taskId) return task
+            return {
+              ...task,
+              turns: task.turns.map((turn) =>
+                turn.id === action.turnId ? appendBlockToTurn(turn, action.block) : turn
+              ),
+              updatedAt: Date.now(),
+            }
+          }),
+        })
+      )
+
+    case 'updateToolBlock':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) => {
+            if (task.id !== action.taskId) return task
+            return {
+              ...task,
+              turns: task.turns.map((turn) =>
+                turn.id === action.turnId ? updateToolBlockInTurn(turn, action.stepId, action.patch) : turn
+              ),
+              updatedAt: Date.now(),
+            }
+          }),
+        })
+      )
+
+    case 'setTaskStatus':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) =>
+            task.id === action.taskId ? { ...task, status: action.status, updatedAt: Date.now() } : task
+          ),
+        })
+      )
+
+    case 'setTaskBackendState':
+      return mapSession(state, action.sessionId, (session) =>
+        touch({
+          ...session,
+          tasks: session.tasks.map((task) =>
+            task.id === action.taskId ? { ...task, backendState: action.backendState } : task
+          ),
+        })
+      )
+
     case 'touchSession':
       return mapSession(state, action.sessionId, touch)
 
@@ -195,6 +309,8 @@ export function chatReducer(state: UiState, action: ChatAction): UiState {
         touch({
           ...item,
           messages: [],
+          tasks: [],
+          activeTaskId: null,
           draft: '',
           backendState: null,
         })
@@ -305,6 +421,8 @@ function normalizeSession(session: unknown): ChatSession {
     id: cast.id || `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: cast.title || '未命名会话',
     messages: Array.isArray(cast.messages) ? cast.messages.slice(-200).map(sanitizeMessage) : [],
+    tasks: Array.isArray(cast.tasks) ? cast.tasks : [],
+    activeTaskId: typeof cast.activeTaskId === 'string' ? cast.activeTaskId : null,
     draft: typeof cast.draft === 'string' ? cast.draft : '',
     updatedAt: typeof cast.updatedAt === 'number' ? cast.updatedAt : Date.now(),
     backendState: cast.backendState ?? null,
@@ -364,11 +482,40 @@ export function loadState(): UiState {
 }
 
 let saveTimer: number | null = null
+let pendingState: UiState | null = null
 
+function writeNow(state: UiState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // localStorage can throw on quota; drop the write rather than crash the UI
+  }
+}
+
+/**
+ * Debounced persistence. During streaming we get a state update per animation
+ * frame; serializing the whole app state that often is wasteful, so coalesce
+ * writes to at most one every 600ms. Call flushState() to force an immediate
+ * write (e.g. on unmount or when a task settles).
+ */
 export function saveState(state: UiState): void {
-  if (saveTimer !== null) window.clearTimeout(saveTimer)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  saveTimer = null
+  pendingState = state
+  if (saveTimer !== null) return
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null
+    if (pendingState) writeNow(pendingState)
+    pendingState = null
+  }, 600)
+}
+
+export function flushState(state?: UiState): void {
+  if (saveTimer !== null) {
+    window.clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  const target = state ?? pendingState
+  pendingState = null
+  if (target) writeNow(target)
 }
 
 export function maybeUpdateSessionTitle(session: ChatSession, text: string): ChatSession {

@@ -1,5 +1,33 @@
 export type Role = 'user' | 'assistant' | 'system'
 export type StatusKind = 'booting' | 'ready' | 'error' | 'busy'
+export type TaskStatus = 'running' | 'done' | 'error'
+
+export type Block =
+  | { kind: 'text'; content: string }
+  | { kind: 'thought'; content: string }
+  | { kind: 'tool'; step: TimelineStep }
+  | { kind: 'diff'; path: string; op: 'add' | 'modify' | 'delete'; before: string | null; after: string | null }
+  | { kind: 'terminal'; command: string; output: string; exitCode?: number }
+  | { kind: 'summary'; content: string }
+  | { kind: 'error'; content: string }
+
+export interface Turn {
+  id: string
+  role: Role
+  agentTurn?: number
+  blocks: Block[]
+  createdAt: number
+}
+
+export interface Task {
+  id: string
+  title: string
+  status: TaskStatus
+  turns: Turn[]
+  backendState: BackendSnapshot | null
+  createdAt: number
+  updatedAt: number
+}
 
 export interface TimelineStep {
   id: string
@@ -33,6 +61,20 @@ export interface LlmOption {
   current: boolean
 }
 
+export interface CostStats {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cacheHitRate: number
+  elapsedSeconds: number
+}
+
+export interface CommandSpec {
+  command: string
+  description: string
+}
+
 export interface BackendSnapshot {
   llmNo: number
   history: string[]
@@ -51,6 +93,8 @@ export interface ChatSession {
   id: string
   title: string
   messages: UiMessage[]
+  tasks: Task[]
+  activeTaskId: string | null
   draft: string
   updatedAt: number
   backendState: BackendSnapshot | null
