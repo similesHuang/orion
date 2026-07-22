@@ -518,11 +518,6 @@ export function App(): ReactElement {
     dispatch({ type: 'bindCurrentProject', projectId: project.id })
   }, [addSystemMessage, chatState.projects])
 
-  const handleSettingsMenuSelect = useCallback((section: string) => {
-    setSettingsPopoverOpen(false)
-    setSettings({ open: true })
-  }, [])
-
   const uploadAndAttachFile = useCallback(async (file: File) => {
     if (!session) return
     try {
@@ -1263,7 +1258,7 @@ export function App(): ReactElement {
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 12px' }}>
               <Popover
-                content={<div style={{ padding: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>设置面板（待完善）</div>}
+                content={<div style={{ padding: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }} onClick={() => { setSettingsPopoverOpen(false); setSettings({ open: true }); }}>打开设置面板</div>}
                 trigger="click"
                 placement="top"
                 overlayClassName="settings-popover"
