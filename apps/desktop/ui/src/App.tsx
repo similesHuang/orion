@@ -1247,17 +1247,16 @@ export function App(): ReactElement {
   const orionTheme = {
     algorithm: theme.darkAlgorithm,
     token: {
-      colorBgBase: '#16171a',
-      colorBgContainer: '#1e1f23',
-      colorBgElevated: '#26272c',
-      colorTextBase: '#eceae4',
-      colorTextSecondary: '#86837c',
-      colorBorder: 'rgba(236, 234, 228, 0.08)',
+      colorBgBase: '#0f0f1a',
+      colorBgContainer: 'rgba(255,255,255,0.04)',
+      colorBgElevated: 'rgba(255,255,255,0.06)',
+      colorTextBase: 'rgba(255,255,255,0.85)',
+      colorTextSecondary: 'rgba(255,255,255,0.5)',
+      colorBorder: 'rgba(255,255,255,0.06)',
       colorPrimary: '#4fd1c5',
       colorPrimaryHover: '#6ee0d5',
       colorPrimaryActive: '#3bb8ac',
       colorLink: '#4fd1c5',
-      colorLinkHover: '#6ee0d5',
       borderRadius: 10,
       fontFamily:
         '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
@@ -1265,11 +1264,8 @@ export function App(): ReactElement {
     },
     components: {
       Button: {
-        colorPrimaryBg: '#4fd1c5',
-        colorPrimaryText: '#131417',
-      },
-      Badge: {
-        colorInfo: '#4fd1c5',
+        colorPrimaryBg: 'rgba(79,209,197,0.15)',
+        colorPrimaryText: '#4fd1c5',
       },
     },
   }
