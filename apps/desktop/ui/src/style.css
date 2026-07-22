@@ -673,7 +673,29 @@ body { background: var(--desk); }
 
 /* ── Composer ── */
 
-.composer-area { display: flex; flex-direction: column; gap: 10px; padding: 0 24px; width: 100%; max-width: 908px; margin: 0 auto; }
+.composer-area { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 0 24px; width: 100%; max-width: 908px; margin: 0 auto; }
+
+.composer-area.drag-over .orion-sender,
+.composer-area.drag-over .antx-sender {
+  border-color: var(--agent);
+  box-shadow: 0 0 0 3px var(--agent-soft);
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 23, 26, 0.82);
+  border-radius: var(--r-lg);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--agent);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  pointer-events: none;
+}
 
 .slash-hints {
   display: flex;

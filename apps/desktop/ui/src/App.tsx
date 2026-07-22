@@ -5,6 +5,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type DragEvent,
   type FormEvent,
   type ReactElement,
 } from 'react'
@@ -182,6 +183,7 @@ export function App(): ReactElement {
   const [maximized, setMaximized] = useState(false)
   const [cost, setCost] = useState<CostStats | null>(null)
   const [commands, setCommands] = useState<CommandSpec[]>([])
+  const [dragging, setDragging] = useState(false)
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
@@ -607,6 +609,22 @@ export function App(): ReactElement {
     }
   }, [chatState.projects])
 
+  const uploadAndAttachFile = useCallback(async (file: File) => {
+    if (!session) return
+    try {
+      const result = await uploadFile(file)
+      const tag = `[附件: ${result.name}](sidecar://attachment/${result.path})`
+      dispatch({
+        type: 'setDraft',
+        sessionId: session.id,
+        draft: session.draft ? `${session.draft}\n${tag}` : tag,
+      })
+      addSystemMessage(`已上传附件: ${result.name}`)
+    } catch (error) {
+      addSystemMessage(`上传附件失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [session, addSystemMessage])
+
   const handleAttachFile = useCallback(async () => {
     if (!session) return
     let selected: string | string[] | null
@@ -625,20 +643,36 @@ export function App(): ReactElement {
       const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'file'
       const blob = new Blob([uint8])
       const file = new File([blob], name)
-      const result = await uploadFile(file)
-
-      // Inject the file path into the draft text (append a reference)
-      const tag = `[附件: ${result.name}](sidecar://attachment/${result.path})`
-      dispatch({
-        type: 'setDraft',
-        sessionId: session.id,
-        draft: session.draft ? `${session.draft}\n${tag}` : tag,
-      })
-      addSystemMessage(`已上传附件: ${result.name}`)
+      await uploadAndAttachFile(file)
     } catch (error) {
       addSystemMessage(`上传附件失败: ${error instanceof Error ? error.message : String(error)}`)
     }
-  }, [session, addSystemMessage])
+  }, [session, addSystemMessage, uploadAndAttachFile])
+
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer?.types?.includes('Files')) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragging(false)
+    if (!session) return
+    const files = Array.from(event.dataTransfer?.files ?? [])
+    if (files.length === 0) return
+    for (const file of files) {
+      void uploadAndAttachFile(file)
+    }
+  }, [session, uploadAndAttachFile])
 
   const handleExportConversation = useCallback(async () => {
     try {
@@ -1513,7 +1547,13 @@ export function App(): ReactElement {
               )}
             </section>
 
-            <div className="composer-area">
+            <div
+              className={`composer-area${dragging ? ' drag-over' : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              {dragging && <div className="drop-overlay">释放以上传</div>}
               {slashMatches.length > 0 && (
                 <div className="slash-hints">
                   {slashMatches.map((c) => (
