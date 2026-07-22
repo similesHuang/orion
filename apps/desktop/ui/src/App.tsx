@@ -5,12 +5,8 @@ import {
   useReducer,
   useRef,
   useState,
-  type DragEvent,
-  type FormEvent,
   type ReactElement,
 } from 'react'
-import { open } from '@tauri-apps/plugin-dialog'
-import { readFile } from '@tauri-apps/plugin-fs'
 import { Sender, XProvider } from '@ant-design/x'
 import {
   Badge,
@@ -27,7 +23,6 @@ import {
   theme,
 } from 'antd'
 import {
-  PaperClipOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
 import {
@@ -52,8 +47,6 @@ import {
   loadSettings as fetchSettings,
   pingSidecar,
   saveSettings as postSettings,
-  selectLlm,
-  uploadFile,
   baseUrl,
   setSidecarPort,
   startSidecar as startSidecarCmd,
@@ -63,13 +56,11 @@ import {
   minimizeWindow,
   toggleMaximizeWindow,
   closeWindow,
-  getGitBranch,
   startGateway,
   stopGateway,
   gatewayStatus,
 } from './api'
 import {
-  createProject,
   createSession,
   createTask,
   createTurn,
@@ -175,8 +166,7 @@ export function App(): ReactElement {
   const [cost, setCost] = useState<CostStats | null>(null)
   const [commands, setCommands] = useState<CommandSpec[]>([])
   const [gatewayRunning, setGatewayRunning] = useState(false)
-  const [gatewayPid, setGatewayPid] = useState<number | null>(null)
-  const [dragging, setDragging] = useState(false)
+  const [, setGatewayPid] = useState<number | null>(null)
   const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false)
 
   const sourceRef = useRef<AbortController | null>(null)
@@ -482,106 +472,6 @@ export function App(): ReactElement {
   const handleToggleExpandProject = useCallback((projectId: string) => {
     dispatch({ type: 'toggleExpandProject', projectId })
   }, [])
-
-  const handleUnbindCurrentProject = useCallback(() => {
-    dispatch({ type: 'unbindCurrentProject' })
-  }, [])
-
-  const handleAddProjectDirectory = useCallback(async () => {
-    let selected: string | string[] | null
-    try {
-      selected = await open({ directory: true, multiple: false })
-    } catch (error) {
-      addSystemMessage(`选择目录失败: ${error instanceof Error ? error.message : String(error)}`)
-      return
-    }
-    const projectPath = Array.isArray(selected) ? selected[0] : selected
-    if (!projectPath) return
-    console.log('[UI] selected project path:', projectPath)
-
-    const existing = chatState.projects.find((p) => p.path === projectPath)
-    if (existing) {
-      console.log('[UI] binding to existing project:', existing.id, existing.path)
-      dispatch({ type: 'bindCurrentProject', projectId: existing.id })
-      return
-    }
-
-    let gitBranch: string | null = null
-    try {
-      gitBranch = await getGitBranch(projectPath)
-    } catch {
-      gitBranch = null
-    }
-    const project = createProject(projectPath, gitBranch)
-    console.log('[UI] creating and binding project:', project.id, project.path)
-    dispatch({ type: 'createProject', project })
-    dispatch({ type: 'bindCurrentProject', projectId: project.id })
-  }, [addSystemMessage, chatState.projects])
-
-  const uploadAndAttachFile = useCallback(async (file: File) => {
-    if (!session) return
-    try {
-      const result = await uploadFile(file)
-      const tag = `[附件: ${result.name}](sidecar://attachment/${result.path})`
-      dispatch({
-        type: 'setDraft',
-        sessionId: session.id,
-        draft: session.draft ? `${session.draft}\n${tag}` : tag,
-      })
-      addSystemMessage(`已上传附件: ${result.name}`)
-    } catch (error) {
-      addSystemMessage(`上传附件失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }, [session, addSystemMessage])
-
-  const handleAttachFile = useCallback(async () => {
-    if (!session) return
-    let selected: string | string[] | null
-    try {
-      selected = await open({ multiple: false })
-    } catch (error) {
-      addSystemMessage(`选择文件失败: ${error instanceof Error ? error.message : String(error)}`)
-      return
-    }
-    const filePath = Array.isArray(selected) ? selected[0] : selected
-    if (!filePath) return
-
-    // Read the file via Tauri fs plugin and upload to the sidecar
-    try {
-      const uint8 = await readFile(filePath)
-      const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'file'
-      const blob = new Blob([uint8])
-      const file = new File([blob], name)
-      await uploadAndAttachFile(file)
-    } catch (error) {
-      addSystemMessage(`上传附件失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }, [session, addSystemMessage, uploadAndAttachFile])
-
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer?.types?.includes('Files')) return
-    event.preventDefault()
-    event.stopPropagation()
-    setDragging(true)
-  }, [])
-
-  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setDragging(false)
-  }, [])
-
-  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setDragging(false)
-    if (!session) return
-    const files = Array.from(event.dataTransfer?.files ?? [])
-    if (files.length === 0) return
-    for (const file of files) {
-      void uploadAndAttachFile(file)
-    }
-  }, [session, uploadAndAttachFile])
 
   const handleSend = useCallback(async () => {
     if (!port || streamingRef.current || !session) return
@@ -911,29 +801,6 @@ export function App(): ReactElement {
       }
     },
     [addSystemMessage]
-  )
-
-  const handleLlmChange = useCallback(
-    async (event: FormEvent<HTMLSelectElement>) => {
-      if (!port || !agentReady) return
-      const idx = Number(event.currentTarget.value)
-      try {
-        await selectLlm(idx)
-        const options = await fetchModels()
-        setLlmOptions(options)
-        const current = options.find((option) => option.current)
-        setSelectedLlmLabel(current?.label || '模型已切换')
-        addSystemMessage(`已切换到 ${current?.label || '模型已切换'}`)
-        const snapshot = await exportBackendSnapshot()
-        if (snapshot && session) {
-          dispatch({ type: 'setBackendState', sessionId: session.id, backendState: snapshot })
-        }
-        await ping()
-      } catch (error) {
-        addSystemMessage(`切换失败: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    },
-    [addSystemMessage, agentReady, port, session, ping]
   )
 
   const handleSaveSettings = useCallback(async () => {
@@ -1374,13 +1241,7 @@ export function App(): ReactElement {
               )}
             </section>
 
-            <div
-              className={`composer-area${dragging ? ' drag-over' : ''}`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {dragging && <div className="drop-overlay">释放以上传</div>}
+            <div className="composer-area">
               {slashMatches.length > 0 && (
                 <div className="slash-hints">
                   {slashMatches.map((c) => (
@@ -1414,46 +1275,7 @@ export function App(): ReactElement {
                 loading={streaming}
                 disabled={!sidecarReady}
                 submitType="enter"
-                placeholder={sidecarReady ? '输入任务、命令或问题' : 'sidecar 启动中…'}
-                prefix={
-                  <Tooltip title="上传附件">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<PaperClipOutlined />}
-                      className="attach-btn"
-                      onClick={() => void handleAttachFile()}
-                    />
-                  </Tooltip>
-                }
-                footer={
-                  <div className="project-binding-bar">
-                    <Space>
-                      {currentProject ? (
-                        <>
-                          <span>📁 {currentProject.name}</span>
-                          {currentProject.gitBranch && <Badge count={currentProject.gitBranch} color="blue" />}
-                          <Button size="small" onClick={handleUnbindCurrentProject}>解除绑定</Button>
-                        </>
-                      ) : (
-                        <Button size="small" onClick={() => void handleAddProjectDirectory()}>
-                          + 添加 Project 目录
-                        </Button>
-                      )}
-                      <select
-                        className="model-select"
-                        value={llmOptions.find((option) => option.current)?.idx ?? ''}
-                        onChange={handleLlmChange}
-                        disabled={!agentReady || llmOptions.length === 0}
-                      >
-                        {llmOptions.length === 0 && <option value="">未加载</option>}
-                        {llmOptions.map((option) => (
-                          <option key={option.idx} value={option.idx}>{option.label}</option>
-                        ))}
-                      </select>
-                    </Space>
-                  </div>
-                }
+                placeholder={sidecarReady ? '输入任务或问题' : 'sidecar 启动中…'}
               />
             </div>
           </Layout.Content>
