@@ -84,9 +84,7 @@ body { background: var(--bg); }
 /* ── Glassmorphic utility ── */
 
 .glass-card {
-  background: rgba(255,255,255,0.04);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
 }
@@ -891,26 +889,26 @@ body { background: var(--bg); }
   font-size: 13px;
 }
 .settings-gateway-card {
-  background: #1c1d21 !important;
-  border: 1px solid rgba(255,255,255,0.06) !important;
+  background: var(--elevated) !important;
+  border: 1px solid var(--line) !important;
   margin-bottom: 12px;
 }
 .settings-gateway-card .ant-card-head {
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--line);
 }
 .settings-diag-card {
-  background: #1c1d21 !important;
-  border: 1px solid rgba(255,255,255,0.06) !important;
+  background: var(--elevated) !important;
+  border: 1px solid var(--line) !important;
 }
 .settings-diag-card .ant-card-head {
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--line);
 }
 .settings-diag-card .ant-descriptions-item-label {
-  color: rgba(255,255,255,0.4);
+  color: var(--ink-mute);
   font-size: 12px;
 }
 .settings-diag-card .ant-descriptions-item-content {
-  color: rgba(255,255,255,0.7);
+  color: var(--ink-dim);
   font-size: 13px;
 }
 .form-field-wide { grid-column: 1 / -1; }
@@ -986,17 +984,17 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   align-items: center;
   padding: 5px 10px;
   border-radius: 5px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--surface);
+  border: 1px solid var(--line);
   cursor: pointer;
-  color: rgba(255,255,255,0.35);
+  color: var(--ink-mute);
   transition: background 0.15s, border-color 0.15s;
   width: 100%;
 }
 .sidebar-settings-btn:hover {
-  background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.5);
+  background: var(--raised);
+  border-color: var(--line-strong);
+  color: var(--ink-dim);
 }
 
 /* ── Settings popover menu ── */
@@ -1011,12 +1009,12 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
-  color: rgba(255,255,255,0.8);
+  color: var(--ink);
   font-size: 12px;
   transition: background 0.15s;
 }
 .settings-menu-item:hover {
-  background: rgba(255,255,255,0.06);
+  background: var(--raised);
 }
 .settings-menu-icon {
   font-size: 14px;
@@ -1027,8 +1025,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .settings-menu-badge {
   font-size: 10px;
-  color: #4fd1c5;
-  background: rgba(79,209,197,0.12);
+  color: var(--agent);
+  background: var(--agent-soft);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -1040,23 +1038,22 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   transition: background 0.15s;
 }
 .session-list-item:hover {
-  background: rgba(255,255,255,0.04);
+  background: var(--raised);
 }
 .session-list-item.active {
-  background: rgba(79,209,197,0.08);
-  border-left: 2px solid #4fd1c5;
+  background: var(--agent-soft);
+  border-left: 2px solid var(--agent);
   padding-left: 22px !important;
 }
 
 /* ── Settings popover overlay ── */
 
 .settings-popover .ant-popover-inner {
-  background: rgba(30, 31, 38, 0.95);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--elevated);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 6px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow);
 }
 
 .settings-menu-divider {

@@ -850,9 +850,9 @@ export function App(): ReactElement {
 
   const renderModelConfig = () => (
     <Form layout="vertical" size="middle">
-      {settings.error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
+      {settings.error && <div style={{ color: 'var(--error)', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
       {PRIMARY_MODEL_FIELDS.map((field) => (
-        <Form.Item key={field.key} label={<span style={{ color: 'rgba(255,255,255,0.65)' }}>{field.label}</span>}>
+        <Form.Item key={field.key} label={<span style={{ color: 'var(--ink-dim)' }}>{field.label}</span>}>
           {field.secret ? (
             <Input.Password
               className="settings-ant-input"
@@ -883,9 +883,9 @@ export function App(): ReactElement {
           ghost
           items={[{
             key: 'extra',
-            label: <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>其他环境变量 ({renderExtraEnvKeys.length})</span>,
+            label: <span style={{ color: 'var(--ink-mute)', fontSize: 13 }}>其他环境变量 ({renderExtraEnvKeys.length})</span>,
             children: renderExtraEnvKeys.map((key) => (
-              <Form.Item key={key} label={<span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{key}</span>}>
+              <Form.Item key={key} label={<span style={{ color: 'var(--ink-mute)', fontSize: 12 }}>{key}</span>}>
                 <Input className="settings-ant-input" value={String(settings.env[key] ?? '')} onChange={(e) => updateField('env', key, e.target.value)} />
               </Form.Item>
             )),
@@ -897,7 +897,7 @@ export function App(): ReactElement {
 
   const renderGatewayConfig = () => (
     <Form layout="vertical" size="middle">
-      {settings.error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
+      {settings.error && <div style={{ color: 'var(--error)', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
       {GATEWAY_SPECS.map((spec) => {
         const diagnostic = settings.diagnostics?.gateways.find((item) => item.id === spec.id)
         const statusText = diagnostic?.configured ? '已配置' : diagnostic ? `缺少 ${diagnostic.requiredMissing.join(', ')}` : '待检测'
@@ -906,11 +906,11 @@ export function App(): ReactElement {
             key={spec.id}
             size="small"
             title={<span style={{ fontSize: 14 }}>{spec.label}</span>}
-            extra={<span style={{ fontSize: 12, color: diagnostic?.configured ? '#4fd1c5' : '#f2c14e' }}>{statusText}</span>}
+            extra={<span style={{ fontSize: 12, color: diagnostic?.configured ? 'var(--agent)' : 'var(--warn)' }}>{statusText}</span>}
             className="settings-gateway-card"
           >
             {spec.fields.map((field) => (
-              <Form.Item key={field.key} label={<span style={{ color: 'rgba(255,255,255,0.65)' }}>{field.label}</span>}>
+              <Form.Item key={field.key} label={<span style={{ color: 'var(--ink-dim)' }}>{field.label}</span>}>
                 {field.secret ? (
                   <Input.Password className="settings-ant-input" value={getFieldValue(field)} onChange={(e) => updateField(field.scope, field.key, e.target.value)} placeholder={field.placeholder} />
                 ) : (
@@ -926,7 +926,7 @@ export function App(): ReactElement {
 
   const renderDiagnosticsPanel = () => {
     if (!settings.diagnostics) {
-      return <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>尚未获取到诊断信息。</p>
+      return <p style={{ color: 'var(--ink-mute)', fontSize: 13 }}>尚未获取到诊断信息。</p>
     }
     const d = settings.diagnostics
     return (
@@ -941,16 +941,16 @@ export function App(): ReactElement {
         </Card>
         <Card size="small" title="Agent" className="settings-diag-card">
           <Descriptions column={2} size="small" colon={false}>
-            <Descriptions.Item label="状态"><span style={{ color: d.agent.ready ? '#4fd1c5' : '#f2c14e' }}>{d.agent.ready ? '就绪' : '未就绪'}</span></Descriptions.Item>
+            <Descriptions.Item label="状态"><span style={{ color: d.agent.ready ? 'var(--agent)' : 'var(--warn)' }}>{d.agent.ready ? '就绪' : '未就绪'}</span></Descriptions.Item>
             <Descriptions.Item label="当前模型">{d.agent.llmName || '未加载'}</Descriptions.Item>
             <Descriptions.Item label="LLM 索引">{d.agent.llmIndex ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="模型数">{d.agent.llms.length}</Descriptions.Item>
           </Descriptions>
-          {d.agent.issue && <pre style={{ margin: '8px 0 0', color: '#ef4444', fontSize: 12 }}>{d.agent.issue}</pre>}
+          {d.agent.issue && <pre style={{ margin: '8px 0 0', color: 'var(--error)', fontSize: 12 }}>{d.agent.issue}</pre>}
         </Card>
         {d.gateways.map((g) => (
           <Card key={g.id} size="small" title={g.label} className="settings-diag-card"
-            extra={g.configured ? <span style={{ color: '#4fd1c5', fontSize: 12 }}>ready</span> : <span style={{ color: '#f2c14e', fontSize: 12 }}>incomplete</span>}
+            extra={g.configured ? <span style={{ color: 'var(--agent)', fontSize: 12 }}>ready</span> : <span style={{ color: 'var(--warn)', fontSize: 12 }}>incomplete</span>}
           >
             <Descriptions column={1} size="small" colon={false}>
               {g.requiredMissing.length > 0 && <Descriptions.Item label="缺少">{g.requiredMissing.join(', ')}</Descriptions.Item>}
@@ -1059,7 +1059,7 @@ export function App(): ReactElement {
                         key: project.id,
                         label: (
                           <div className="project-collapse-header" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>{project.name}</span>
+                            <span style={{ fontSize: 12, color: 'var(--ink-dim)', fontWeight: 500 }}>{project.name}</span>
                             {project.gitBranch && (
                               <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: '#3b82f6', fontSize: 9 }} />
                             )}
@@ -1078,10 +1078,10 @@ export function App(): ReactElement {
                                 style={{ padding: '4px 6px 4px 24px', border: 'none', cursor: 'pointer' }}
                               >
                                 <div style={{ width: '100%', overflow: 'hidden' }}>
-                                  <div style={{ fontSize: 12, color: item.id === session?.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  <div style={{ fontSize: 12, color: item.id === session?.id ? 'var(--ink)' : 'var(--ink-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                     {item.title}
                                   </div>
-                                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
+                                  <div style={{ fontSize: 10, color: 'var(--ink-mute)', marginTop: 2 }}>
                                     {formatUpdatedAt(item.updatedAt)}
                                   </div>
                                 </div>
@@ -1097,10 +1097,10 @@ export function App(): ReactElement {
 
               <div className="sidebar-section" style={{ marginTop: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 6px' }}>
-                  <Typography.Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                  <Typography.Text style={{ fontSize: 12, color: 'var(--ink-dim)', fontWeight: 500 }}>
                     独立会话
                   </Typography.Text>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-mute)' }}>
                     {standaloneSessions.length}
                   </span>
                 </div>
@@ -1111,10 +1111,10 @@ export function App(): ReactElement {
                     onClick={() => void handleSwitchSession(item.id)}
                     style={{ padding: '4px 6px 4px 22px', cursor: 'pointer', borderRadius: 4 }}
                   >
-                    <div style={{ fontSize: 12, color: item.id === session?.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: 12, color: item.id === session?.id ? 'var(--ink)' : 'var(--ink-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {item.title}
                     </div>
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 1 }}>
+                    <div style={{ fontSize: 10, color: 'var(--ink-mute)', marginTop: 1 }}>
                       {formatUpdatedAt(item.updatedAt)}
                     </div>
                   </div>
@@ -1122,7 +1122,7 @@ export function App(): ReactElement {
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 12px' }}>
+            <div style={{ borderTop: '1px solid var(--line)', padding: '8px 12px' }}>
               <Popover
                 content={<SettingsMenu onSelect={handleSettingsMenuSelect} gatewayConfigured={gatewayConfigured} themeMode={themeMode} onThemeChange={handleThemeChange} />}
                 trigger="click"
@@ -1286,8 +1286,8 @@ export function App(): ReactElement {
           onCancel={() => setSettings({ open: false })}
           title={
             <div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5 }}>设置</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-mute)', letterSpacing: 0.5 }}>设置</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>
                 {settingsSection === 'model' && '🤖 模型配置'}
                 {settingsSection === 'gateway' && '🔌 Gateway 配置'}
                 {settingsSection === 'diagnostics' && '📊 运行诊断'}
