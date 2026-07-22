@@ -832,6 +832,12 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   box-shadow: 0 24px 80px rgba(0,0,0,0.6);
   padding: 0;
 }
+.settings-modal .ant-modal-content,
+.settings-modal .ant-modal-header,
+.settings-modal .ant-modal-body,
+.settings-modal .ant-modal-footer {
+  background: #1c1d21;
+}
 .settings-modal .ant-modal-header {
   background: transparent;
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -869,6 +875,8 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
 }
 
 .settings-section { padding: 18px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--raised); }
+.settings-modal .settings-section { background: #131418; }
+.settings-modal .gateway-card { background: #1c1d21; }
 .section-heading, .gateway-card-head, .gateway-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .settings-section h3, .gateway-card h4, .diagnostic-card h4, .gateway-status-card h4 { margin: 0; color: var(--ink); }
 .section-heading p, .gateway-card p, .gateway-status-card p, .settings-copy { margin: 6px 0 0; color: var(--ink-mute); font-size: 13px; }
