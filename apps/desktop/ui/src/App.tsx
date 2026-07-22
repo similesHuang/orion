@@ -169,6 +169,7 @@ export function App(): ReactElement {
   const [gatewayRunning, setGatewayRunning] = useState(false)
   const [, setGatewayPid] = useState<number | null>(null)
   const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<string>('model')
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
@@ -784,6 +785,7 @@ export function App(): ReactElement {
 
   const handleSettingsMenuSelect = useCallback((section: string) => {
     setSettingsPopoverOpen(false)
+    setSettingsSection(section)
     setSettings({ open: true })
   }, [])
 
@@ -882,114 +884,64 @@ export function App(): ReactElement {
     return '未加载'
   }, [settings.dirty, settings.error, settings.loading, settings.saving, settings.diagnostics])
 
-  const renderSettingsBody = () => {
-    if (settings.loading && !settings.diagnostics && !Object.keys(settings.env).length) {
-      return <div className="settings-loading">正在加载配置与诊断信息…</div>
-    }
-
-    return (
-      <>
-        {settings.error && (
-          <div className="settings-error">配置加载失败：{settings.error}</div>
-        )}
-        <section className="settings-section">
-          <div className="section-heading">
-            <div>
-              <h3>模型配置</h3>
-              <p className="settings-copy">
-                对应项目根目录下的 <code>.env</code>。保存后 sidecar 会用当前会话快照重建 agent。
-              </p>
-            </div>
-          </div>
-          <div className="form-grid">
-            {PRIMARY_MODEL_FIELDS.map((field) => (
-              <FieldInput
-                key={field.key}
-                field={field}
-                value={getFieldValue(field)}
-                onChange={updateField}
-              />
+  const renderModelConfig = () => (
+    <>
+      {settings.error && <div className="settings-error">配置加载失败：{settings.error}</div>}
+      <section className="settings-section">
+        <div className="form-grid">
+          {PRIMARY_MODEL_FIELDS.map((field) => (
+            <FieldInput key={field.key} field={field} value={getFieldValue(field)} onChange={updateField} />
+          ))}
+        </div>
+      </section>
+      {renderExtraEnvKeys.length > 0 && (
+        <details className="settings-details">
+          <summary style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', cursor: 'pointer', padding: '8px 0' }}>
+            其他环境变量 ({renderExtraEnvKeys.length})
+          </summary>
+          <div className="form-grid" style={{ marginTop: 8 }}>
+            {renderExtraEnvKeys.map((key) => (
+              <FieldInput key={key} field={{ scope: 'env', key, label: key }} value={String(settings.env[key] ?? '')} onChange={updateField} />
             ))}
           </div>
-        </section>
+        </details>
+      )}
+    </>
+  )
 
-        {renderExtraEnvKeys.length > 0 && (
-          <section className="settings-section">
-            <div className="section-heading">
-              <div>
-                <h3>其他环境变量</h3>
-                <p className="settings-copy">保留已存在但未放进主表单的附加字段，例如多模型或 tracing 配置。</p>
+  const renderGatewayConfig = () => (
+    <>
+      {settings.error && <div className="settings-error">配置加载失败：{settings.error}</div>}
+      <div className="gateway-grid">
+        {GATEWAY_SPECS.map((spec) => {
+          const diagnostic = settings.diagnostics?.gateways.find((item) => item.id === spec.id)
+          const statusText = diagnostic?.configured ? '已配置' : diagnostic ? `缺少 ${diagnostic.requiredMissing.join(', ')}` : '待检测'
+          return (
+            <article className="gateway-card" key={spec.id}>
+              <div className="gateway-card-head">
+                <div>
+                  <h4>{spec.label}</h4>
+                  <p>{spec.description}</p>
+                </div>
+                <span className={`gateway-state ${diagnostic?.configured ? 'ok' : 'warn'}`}>{statusText}</span>
               </div>
-            </div>
-            <div className="form-grid">
-              {renderExtraEnvKeys.map((key) => (
-                <FieldInput
-                  key={key}
-                  field={{ scope: 'env', key, label: key }}
-                  value={String(settings.env[key] ?? '')}
-                  onChange={updateField}
-                />
-              ))}
-            </div>
-          </section>
-        )}
+              <div className="form-grid">
+                {spec.fields.map((field) => (
+                  <FieldInput key={field.key} field={field} value={getFieldValue(field)} onChange={updateField} />
+                ))}
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </>
+  )
 
-        <section className="settings-section">
-          <div className="section-heading">
-            <div>
-              <h3>Gateway 配置</h3>
-              <p className="settings-copy">统一维护机器人网关凭证、允许用户和监听端口。</p>
-            </div>
-          </div>
-          <div className="gateway-grid">
-            {GATEWAY_SPECS.map((spec) => {
-              const diagnostic = settings.diagnostics?.gateways.find((item) => item.id === spec.id)
-              const statusText = diagnostic?.configured
-                ? '已配置'
-                : diagnostic
-                  ? `缺少 ${diagnostic.requiredMissing.join(', ')}`
-                  : '待检测'
-              return (
-                <article className="gateway-card" key={spec.id}>
-                  <div className="gateway-card-head">
-                    <div>
-                      <h4>{spec.label}</h4>
-                      <p>{spec.description}</p>
-                    </div>
-                    <span className={`gateway-state ${diagnostic?.configured ? 'ok' : 'warn'}`}>
-                      {statusText}
-                    </span>
-                  </div>
-                  <div className="form-grid">
-                    {spec.fields.map((field) => (
-                      <FieldInput
-                        key={field.key}
-                        field={field}
-                        value={getFieldValue(field)}
-                        onChange={updateField}
-                      />
-                    ))}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-
-        <section className="settings-section">
-          <div className="section-heading">
-            <div>
-              <h3>运行诊断</h3>
-              <p className="settings-copy">查看 sidecar、agent 和 gateway 当前运行状态。</p>
-            </div>
-          </div>
-          {settings.diagnostics ? renderDiagnostics(settings.diagnostics, gatewayRunning, handleStartGateway, handleStopGateway) : (
-            <p className="settings-copy">尚未获取到诊断信息。</p>
-          )}
-        </section>
-      </>
-    )
-  }
+  const renderDiagnosticsPanel = () => (
+    settings.diagnostics
+      ? renderDiagnostics(settings.diagnostics, gatewayRunning, handleStartGateway, handleStopGateway)
+      : <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>尚未获取到诊断信息。</p>
+  )
 
   const orionTheme = {
     algorithm: theme.darkAlgorithm,
@@ -1333,7 +1285,11 @@ export function App(): ReactElement {
             </div>
           }
         >
-          <div className="settings-body">{renderSettingsBody()}</div>
+          <div className="settings-body">
+            {settingsSection === 'model' && renderModelConfig()}
+            {settingsSection === 'gateway' && renderGatewayConfig()}
+            {settingsSection === 'diagnostics' && renderDiagnosticsPanel()}
+          </div>
         </Drawer>
       </Layout>
       </XProvider>
