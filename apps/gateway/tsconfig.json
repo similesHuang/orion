@@ -9,10 +9,7 @@
   ],
   "references": [
     {
-      "path": "../../packages/agent"
-    },
-    {
-      "path": "../../packages/chat"
+      "path": "../../packages/core"
     }
   ]
 }

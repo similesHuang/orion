@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { AgentChatMixin, GenericAgentLike, loadMykey, ensureSingleInstance, requireRuntime, toAllowedSet, createWebhookServer } from '@orion/chat';
-import { GenericAgent } from '@orion/agent';
+import { AgentChatMixin, GenericAgentLike, loadMykey, ensureSingleInstance, requireRuntime, toAllowedSet, createWebhookServer } from '@orion/core';
+import { GenericAgent } from '@orion/core';
 
 const __filename = fileURLToPath(import.meta.url);
 

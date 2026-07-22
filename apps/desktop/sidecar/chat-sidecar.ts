@@ -5,8 +5,8 @@ import http from 'node:http'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { AgentChatMixin, buildDoneText, costTracker, ensureSingleInstance, loadMykey, HELP_COMMANDS } from '@orion/chat'
-import { AgentYield, GenericAgent } from '@orion/agent'
+import { AgentChatMixin, buildDoneText, costTracker, ensureSingleInstance, loadMykey, HELP_COMMANDS } from '@orion/core'
+import { AgentYield, GenericAgent } from '@orion/core'
 
 const __filename = fileURLToPath(import.meta.url)
 const PROJECT_ROOT = findProjectRoot(path.dirname(__filename))

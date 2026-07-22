@@ -17,8 +17,7 @@
   },
   "dependencies": {
     "@ant-design/x": "^2.8.0",
-    "@orion/agent": "workspace:*",
-    "@orion/chat": "workspace:*",
+    "@orion/core": "workspace:*",
     "antd": "^6.5.0"
   },
   "devDependencies": {
