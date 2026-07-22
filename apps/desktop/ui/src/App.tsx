@@ -11,8 +11,12 @@ import { Sender, XProvider } from '@ant-design/x'
 import {
   Badge,
   Button,
+  Card,
   Collapse,
   ConfigProvider,
+  Descriptions,
+  Form,
+  Input,
   Modal,
   Layout,
   List,
@@ -110,45 +114,6 @@ const initialSettings: SettingsState = {
   env: {},
   mykey: {},
   diagnostics: null,
-}
-
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: FieldSpec
-  value: string
-  onChange: (scope: 'env' | 'mykey', key: string, value: string) => void
-}): ReactElement {
-  return (
-    <label className={`form-field ${field.multiline ? 'form-field-wide' : ''}`}>
-      <span>{field.label}</span>
-      {field.multiline ? (
-        <textarea
-          className="settings-textarea"
-          data-scope={field.scope}
-          data-key={field.key}
-          data-format={field.multiline ? 'list' : undefined}
-          placeholder={field.placeholder}
-          value={value}
-          onChange={(event) => onChange(field.scope, field.key, event.target.value)}
-          rows={3}
-        />
-      ) : (
-        <input
-          className="settings-input"
-          data-scope={field.scope}
-          data-key={field.key}
-          type={field.secret ? 'password' : 'text'}
-          placeholder={field.placeholder}
-          value={value}
-          onChange={(event) => onChange(field.scope, field.key, event.target.value)}
-        />
-      )}
-      {field.hint && <small>{field.hint}</small>}
-    </label>
-  )
 }
 
 export function App(): ReactElement {
@@ -876,63 +841,118 @@ export function App(): ReactElement {
   }, [settings.env])
 
   const renderModelConfig = () => (
-    <>
-      {settings.error && <div className="settings-error">配置加载失败：{settings.error}</div>}
-      <section className="settings-section">
-        <div className="form-grid">
-          {PRIMARY_MODEL_FIELDS.map((field) => (
-            <FieldInput key={field.key} field={field} value={getFieldValue(field)} onChange={updateField} />
-          ))}
-        </div>
-      </section>
+    <Form layout="vertical" size="middle">
+      {settings.error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
+      {PRIMARY_MODEL_FIELDS.map((field) => (
+        <Form.Item key={field.key} label={<span style={{ color: 'rgba(255,255,255,0.65)' }}>{field.label}</span>}>
+          {field.secret ? (
+            <Input.Password
+              className="settings-ant-input"
+              value={getFieldValue(field)}
+              onChange={(e) => updateField(field.scope, field.key, e.target.value)}
+              placeholder={field.placeholder}
+            />
+          ) : field.multiline ? (
+            <Input.TextArea
+              className="settings-ant-input"
+              value={getFieldValue(field)}
+              onChange={(e) => updateField(field.scope, field.key, e.target.value)}
+              placeholder={field.placeholder}
+              rows={3}
+            />
+          ) : (
+            <Input
+              className="settings-ant-input"
+              value={getFieldValue(field)}
+              onChange={(e) => updateField(field.scope, field.key, e.target.value)}
+              placeholder={field.placeholder}
+            />
+          )}
+        </Form.Item>
+      ))}
       {renderExtraEnvKeys.length > 0 && (
-        <details className="settings-details">
-          <summary style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', cursor: 'pointer', padding: '8px 0' }}>
-            其他环境变量 ({renderExtraEnvKeys.length})
-          </summary>
-          <div className="form-grid" style={{ marginTop: 8 }}>
-            {renderExtraEnvKeys.map((key) => (
-              <FieldInput key={key} field={{ scope: 'env', key, label: key }} value={String(settings.env[key] ?? '')} onChange={updateField} />
-            ))}
-          </div>
-        </details>
+        <Collapse
+          ghost
+          items={[{
+            key: 'extra',
+            label: <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>其他环境变量 ({renderExtraEnvKeys.length})</span>,
+            children: renderExtraEnvKeys.map((key) => (
+              <Form.Item key={key} label={<span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{key}</span>}>
+                <Input className="settings-ant-input" value={String(settings.env[key] ?? '')} onChange={(e) => updateField('env', key, e.target.value)} />
+              </Form.Item>
+            )),
+          }]}
+        />
       )}
-    </>
+    </Form>
   )
 
   const renderGatewayConfig = () => (
-    <>
-      {settings.error && <div className="settings-error">配置加载失败：{settings.error}</div>}
-      <div className="gateway-grid">
-        {GATEWAY_SPECS.map((spec) => {
-          const diagnostic = settings.diagnostics?.gateways.find((item) => item.id === spec.id)
-          const statusText = diagnostic?.configured ? '已配置' : diagnostic ? `缺少 ${diagnostic.requiredMissing.join(', ')}` : '待检测'
-          return (
-            <article className="gateway-card" key={spec.id}>
-              <div className="gateway-card-head">
-                <div>
-                  <h4>{spec.label}</h4>
-                  <p>{spec.description}</p>
-                </div>
-                <span className={`gateway-state ${diagnostic?.configured ? 'ok' : 'warn'}`}>{statusText}</span>
-              </div>
-              <div className="form-grid">
-                {spec.fields.map((field) => (
-                  <FieldInput key={field.key} field={field} value={getFieldValue(field)} onChange={updateField} />
-                ))}
-              </div>
-            </article>
-          )
-        })}
-      </div>
-    </>
+    <Form layout="vertical" size="middle">
+      {settings.error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{settings.error}</div>}
+      {GATEWAY_SPECS.map((spec) => {
+        const diagnostic = settings.diagnostics?.gateways.find((item) => item.id === spec.id)
+        const statusText = diagnostic?.configured ? '已配置' : diagnostic ? `缺少 ${diagnostic.requiredMissing.join(', ')}` : '待检测'
+        return (
+          <Card
+            key={spec.id}
+            size="small"
+            title={<span style={{ fontSize: 14 }}>{spec.label}</span>}
+            extra={<span style={{ fontSize: 12, color: diagnostic?.configured ? '#4fd1c5' : '#f2c14e' }}>{statusText}</span>}
+            className="settings-gateway-card"
+          >
+            {spec.fields.map((field) => (
+              <Form.Item key={field.key} label={<span style={{ color: 'rgba(255,255,255,0.65)' }}>{field.label}</span>}>
+                {field.secret ? (
+                  <Input.Password className="settings-ant-input" value={getFieldValue(field)} onChange={(e) => updateField(field.scope, field.key, e.target.value)} placeholder={field.placeholder} />
+                ) : (
+                  <Input className="settings-ant-input" value={getFieldValue(field)} onChange={(e) => updateField(field.scope, field.key, e.target.value)} placeholder={field.placeholder} />
+                )}
+              </Form.Item>
+            ))}
+          </Card>
+        )
+      })}
+    </Form>
   )
 
-  const renderDiagnosticsPanel = () => (
-    settings.diagnostics
-      ? renderDiagnostics(settings.diagnostics, gatewayRunning, handleStartGateway, handleStopGateway)
-      : <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>尚未获取到诊断信息。</p>
-  )
+  const renderDiagnosticsPanel = () => {
+    if (!settings.diagnostics) {
+      return <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>尚未获取到诊断信息。</p>
+    }
+    const d = settings.diagnostics
+    return (
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Card size="small" title="Sidecar" className="settings-diag-card">
+          <Descriptions column={2} size="small" colon={false}>
+            <Descriptions.Item label="PID">{d.pid}</Descriptions.Item>
+            <Descriptions.Item label="Node">{d.nodeVersion}</Descriptions.Item>
+            <Descriptions.Item label="端口">{d.sidecarPort}</Descriptions.Item>
+            <Descriptions.Item label="活跃请求">{d.activeRequests}</Descriptions.Item>
+          </Descriptions>
+        </Card>
+        <Card size="small" title="Agent" className="settings-diag-card">
+          <Descriptions column={2} size="small" colon={false}>
+            <Descriptions.Item label="状态"><span style={{ color: d.agent.ready ? '#4fd1c5' : '#f2c14e' }}>{d.agent.ready ? '就绪' : '未就绪'}</span></Descriptions.Item>
+            <Descriptions.Item label="当前模型">{d.agent.llmName || '未加载'}</Descriptions.Item>
+            <Descriptions.Item label="LLM 索引">{d.agent.llmIndex ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="模型数">{d.agent.llms.length}</Descriptions.Item>
+          </Descriptions>
+          {d.agent.issue && <pre style={{ margin: '8px 0 0', color: '#ef4444', fontSize: 12 }}>{d.agent.issue}</pre>}
+        </Card>
+        {d.gateways.map((g) => (
+          <Card key={g.id} size="small" title={g.label} className="settings-diag-card"
+            extra={g.configured ? <span style={{ color: '#4fd1c5', fontSize: 12 }}>ready</span> : <span style={{ color: '#f2c14e', fontSize: 12 }}>incomplete</span>}
+          >
+            <Descriptions column={1} size="small" colon={false}>
+              {g.requiredMissing.length > 0 && <Descriptions.Item label="缺少">{g.requiredMissing.join(', ')}</Descriptions.Item>}
+              {g.portKey && <Descriptions.Item label={g.portKey}>{g.portValue || '-'}</Descriptions.Item>}
+            </Descriptions>
+          </Card>
+        ))}
+      </Space>
+    )
+  }
 
   const orionTheme = {
     algorithm: theme.darkAlgorithm,
@@ -1242,8 +1262,8 @@ export function App(): ReactElement {
           onCancel={() => setSettings({ open: false })}
           title={
             <div>
-              <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', letterSpacing: 1 }}>设置</div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.9)', marginTop: 1 }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5 }}>设置</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
                 {settingsSection === 'model' && '🤖 模型配置'}
                 {settingsSection === 'gateway' && '🔌 Gateway 配置'}
                 {settingsSection === 'diagnostics' && '📊 运行诊断'}
@@ -1251,99 +1271,25 @@ export function App(): ReactElement {
             </div>
           }
           footer={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Space>
               <Button onClick={() => setSettings({ open: false })}>取消</Button>
               <Button type="primary" onClick={() => void handleSaveSettings()} loading={settings.saving}>
                 保存配置
               </Button>
-            </div>
+            </Space>
           }
           width={520}
           centered
           destroyOnClose
           className="settings-modal"
+          styles={{ body: { maxHeight: 420, overflowY: 'auto', padding: '16px 24px' } }}
         >
-          <div style={{ padding: '4px 0' }}>
-            {settingsSection === 'model' && renderModelConfig()}
-            {settingsSection === 'gateway' && renderGatewayConfig()}
-            {settingsSection === 'diagnostics' && renderDiagnosticsPanel()}
-          </div>
+          {settingsSection === 'model' && renderModelConfig()}
+          {settingsSection === 'gateway' && renderGatewayConfig()}
+          {settingsSection === 'diagnostics' && renderDiagnosticsPanel()}
         </Modal>
       </Layout>
       </XProvider>
     </ConfigProvider>
-  )
-}
-
-function renderDiagnostics(
-  diagnostics: DiagnosticsPayload,
-  gatewayRunning: boolean,
-  onStartGateway: () => void,
-  onStopGateway: () => void,
-): ReactElement {
-  const fileRows = [
-    ['.env', diagnostics.files.envExists ? diagnostics.files.envPath : `${diagnostics.files.envPath} (不存在)`],
-    ['.env.example', diagnostics.files.envExampleExists ? diagnostics.files.envExamplePath : `${diagnostics.files.envExamplePath} (不存在)`],
-  ]
-
-  return (
-    <>
-      <div className="diagnostics-grid">
-        <article className="diagnostic-card">
-          <h4>Sidecar</h4>
-          <dl>
-            <div><dt>PID</dt><dd>{diagnostics.pid}</dd></div>
-            <div><dt>Node</dt><dd>{diagnostics.nodeVersion}</dd></div>
-            <div><dt>端口</dt><dd>{diagnostics.sidecarPort}</dd></div>
-            <div><dt>活跃请求</dt><dd>{diagnostics.activeRequests}</dd></div>
-          </dl>
-        </article>
-        <article className="diagnostic-card">
-          <h4>Agent</h4>
-          <dl>
-            <div><dt>状态</dt><dd>{diagnostics.agent.ready ? '就绪' : '未就绪'}</dd></div>
-            <div><dt>当前模型</dt><dd>{diagnostics.agent.llmName || '未加载'}</dd></div>
-            <div><dt>LLM 索引</dt><dd>{diagnostics.agent.llmIndex ?? '-'}</dd></div>
-            <div><dt>模型数</dt><dd>{diagnostics.agent.llms.length}</dd></div>
-          </dl>
-          {diagnostics.agent.issue && <pre className="diagnostic-pre">{diagnostics.agent.issue}</pre>}
-        </article>
-        <article className="diagnostic-card diagnostic-card-wide">
-          <h4>路径</h4>
-          <dl>
-            <div><dt>工作目录</dt><dd>{diagnostics.cwd}</dd></div>
-            <div><dt>项目根目录</dt><dd>{diagnostics.projectRoot}</dd></div>
-            {fileRows.map(([label, value]) => (
-              <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-            ))}
-          </dl>
-        </article>
-      </div>
-      <div className="gateway-status-grid">
-        {diagnostics.gateways.map((gateway) => (
-          <article className="gateway-status-card" key={gateway.id}>
-            <div className="gateway-status-head">
-              <h4>{gateway.label}</h4>
-              <Space size={4}>
-                <span className={`gateway-state ${gateway.configured ? 'ok' : 'warn'}`}>
-                  {gateway.configured ? 'ready' : 'incomplete'}
-                </span>
-                <Button
-                  size="small"
-                  type={gatewayRunning ? 'default' : 'primary'}
-                  onClick={gatewayRunning ? onStopGateway : onStartGateway}
-                >
-                  {gatewayRunning ? '停止' : '启动'}
-                </Button>
-              </Space>
-            </div>
-            <p>{gateway.requiredMissing.length ? `缺少 ${gateway.requiredMissing.join(', ')}` : '必填字段已齐全'}</p>
-            {gateway.portKey ? <p>{gateway.portKey}: {gateway.portValue || '-'}</p> : <p>无本地 webhook 端口</p>}
-            <p>允许用户: {gateway.allowedUsers.length ? gateway.allowedUsers.join(', ') : '未限制'}</p>
-            {gatewayRunning && gatewayPid !== null && <p className="gateway-pid">进程 PID: {gatewayPid}</p>}
-          </article>
-        ))}
-      </div>
-    </>
   )
 }

@@ -828,62 +828,69 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
 .settings-modal .ant-modal-content {
   background: #1c1d21;
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
-  padding: 0;
-}
-.settings-modal .ant-modal-content,
-.settings-modal .ant-modal-header,
-.settings-modal .ant-modal-body,
-.settings-modal .ant-modal-footer {
-  background: #1c1d21;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5);
 }
 .settings-modal .ant-modal-header {
-  background: transparent;
+  background: #1c1d21;
   border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding: 16px 20px;
+  border-radius: 12px 12px 0 0;
+  padding: 16px 24px;
   margin: 0;
 }
 .settings-modal .ant-modal-body {
-  padding: 20px;
-  background: transparent;
+  background: #1c1d21;
+  padding: 16px 24px;
 }
 .settings-modal .ant-modal-footer {
+  background: #1c1d21;
   border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 14px 20px;
+  padding: 12px 24px;
   margin: 0;
-  background: transparent;
 }
 .settings-modal .ant-modal-close {
   top: 16px;
   right: 20px;
   color: rgba(255,255,255,0.25);
 }
-
-/* Modal overlay — solid dark, no blur */
 .ant-modal-mask {
   background: rgba(0,0,0,0.55) !important;
 }
-
-/* Deeper input background inside modal */
-.settings-modal .settings-input,
-.settings-modal .settings-textarea,
-.settings-modal .settings-select {
-  background: #131418;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 7px;
+.settings-ant-input {
+  background: #0d0e12 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.85) !important;
 }
-
-.settings-section { padding: 18px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--raised); }
-.settings-modal .settings-section { background: #131418; }
-.settings-modal .gateway-card { background: #1c1d21; }
-.section-heading, .gateway-card-head, .gateway-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.settings-section h3, .gateway-card h4, .diagnostic-card h4, .gateway-status-card h4 { margin: 0; color: var(--ink); }
-.section-heading p, .gateway-card p, .gateway-status-card p, .settings-copy { margin: 6px 0 0; color: var(--ink-mute); font-size: 13px; }
-
-.form-grid, .diagnostics-grid, .gateway-grid, .gateway-status-grid { display: grid; gap: 14px; }
-.form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
-.form-field { display: flex; flex-direction: column; gap: 7px; }
+.settings-ant-input:hover {
+  border-color: rgba(255,255,255,0.15) !important;
+}
+.settings-ant-input:focus {
+  border-color: #4fd1c5 !important;
+  box-shadow: 0 0 0 2px rgba(79,209,197,0.15) !important;
+}
+.settings-gateway-card {
+  background: #1c1d21 !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  margin-bottom: 12px;
+}
+.settings-gateway-card .ant-card-head {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.settings-diag-card {
+  background: #1c1d21 !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+.settings-diag-card .ant-card-head {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.settings-diag-card .ant-descriptions-item-label {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+}
+.settings-diag-card .ant-descriptions-item-content {
+  color: rgba(255,255,255,0.7);
+  font-size: 13px;
+}
 .form-field-wide { grid-column: 1 / -1; }
 .form-field span { font-size: 13px; font-weight: 650; color: var(--ink); }
 .form-field small { color: var(--ink-mute); font-size: 12px; }
