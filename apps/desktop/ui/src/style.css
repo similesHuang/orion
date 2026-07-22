@@ -824,24 +824,54 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
 /* Ant badge (git branch) */
 .ant-badge-count { font-family: var(--mono); font-size: 10px; box-shadow: none; }
 
-/* ── Settings drawer ── */
+/* ── Settings Modal ── */
+.settings-modal .ant-modal-content {
+  background: #1c1d21;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  padding: 0;
+}
+.settings-modal .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 16px 20px;
+  margin: 0;
+}
+.settings-modal .ant-modal-body {
+  padding: 20px;
+  background: transparent;
+}
+.settings-modal .ant-modal-footer {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 14px 20px;
+  margin: 0;
+  background: transparent;
+}
+.settings-modal .ant-modal-close {
+  top: 16px;
+  right: 20px;
+  color: rgba(255,255,255,0.25);
+}
 
-.ant-drawer-content { background: var(--surface) !important; border-left: 1px solid var(--line); }
-.ant-drawer-header { border-bottom: 1px solid var(--line) !important; background: transparent !important; }
-.ant-drawer-title h4 { margin: 4px 0 0; color: var(--ink); }
-.ant-drawer-body { display: flex; flex-direction: column; padding: 18px 22px !important; background: transparent; }
-.ant-drawer-footer { border-top: 1px solid var(--line) !important; background: transparent !important; }
-.eyebrow, .settings-eyebrow { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-mute); font-family: var(--mono); }
+/* Modal overlay — solid dark, no blur */
+.ant-modal-mask {
+  background: rgba(0,0,0,0.55) !important;
+}
 
-.drawer-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.settings-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 4px; }
+/* Deeper input background inside modal */
+.settings-modal .settings-input,
+.settings-modal .settings-textarea,
+.settings-modal .settings-select {
+  background: #131418;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 7px;
+}
 
 .settings-section { padding: 18px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--raised); }
 .section-heading, .gateway-card-head, .gateway-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .settings-section h3, .gateway-card h4, .diagnostic-card h4, .gateway-status-card h4 { margin: 0; color: var(--ink); }
 .section-heading p, .gateway-card p, .gateway-status-card p, .settings-copy { margin: 6px 0 0; color: var(--ink-mute); font-size: 13px; }
-
-.settings-state-label { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); color: var(--ink-mute); font-size: 12px; }
 
 .form-grid, .diagnostics-grid, .gateway-grid, .gateway-status-grid { display: grid; gap: 14px; }
 .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
@@ -902,7 +932,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .task-header { padding-left: 0; }
   .form-grid, .gateway-grid, .gateway-status-grid, .diagnostics-grid { grid-template-columns: 1fr; }
   .diagnostic-card-wide { grid-column: auto; }
-  .ant-drawer { width: 100% !important; }
 }
 
 @media (max-width: 640px) {
@@ -911,7 +940,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .cost-hud { display: none; }
   .section-heading, .gateway-card-head, .gateway-status-head { flex-direction: column; align-items: flex-start; }
   .diagnostic-card dl div { grid-template-columns: 1fr; }
-  .drawer-footer { flex-direction: column; align-items: flex-start; gap: 10px; }
 }
 
 /* ── Sidebar settings button ── */

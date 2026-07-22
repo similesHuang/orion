@@ -13,7 +13,7 @@ import {
   Button,
   Collapse,
   ConfigProvider,
-  Drawer,
+  Modal,
   Layout,
   List,
   Popover,
@@ -875,15 +875,6 @@ export function App(): ReactElement {
       .sort()
   }, [settings.env])
 
-  const settingsStateLabel = useMemo(() => {
-    if (settings.saving) return '保存中'
-    if (settings.loading) return '加载中'
-    if (settings.dirty) return '未保存更改'
-    if (settings.error) return '加载失败'
-    if (settings.diagnostics) return '配置已加载'
-    return '未加载'
-  }, [settings.dirty, settings.error, settings.loading, settings.saving, settings.diagnostics])
-
   const renderModelConfig = () => (
     <>
       {settings.error && <div className="settings-error">配置加载失败：{settings.error}</div>}
@@ -1246,51 +1237,38 @@ export function App(): ReactElement {
 
         </Layout>
 
-        <Drawer
+        <Modal
+          open={settings.open}
+          onCancel={() => setSettings({ open: false })}
           title={
             <div>
-              <div className="eyebrow settings-eyebrow">Desktop Settings</div>
-              <Typography.Title level={4} style={{ margin: 0 }}>模型配置、网关配置与运行诊断</Typography.Title>
-              <Typography.Text type="secondary">
-                直接在桌面端维护 <code>.env</code>、<code>mykey.json</code>，并查看 sidecar 当前诊断状态。
-              </Typography.Text>
+              <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', letterSpacing: 1 }}>设置</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.9)', marginTop: 1 }}>
+                {settingsSection === 'model' && '🤖 模型配置'}
+                {settingsSection === 'gateway' && '🔌 Gateway 配置'}
+                {settingsSection === 'diagnostics' && '📊 运行诊断'}
+              </div>
             </div>
-          }
-          placement="right"
-          width={760}
-          open={settings.open}
-          onClose={() => setSettings({ open: false })}
-          extra={
-            <Space>
-              <span className="settings-state-label">{settingsStateLabel}</span>
-              <Button onClick={() => void loadSettings(true)} disabled={settings.loading || settings.saving || !port}>刷新</Button>
-            </Space>
           }
           footer={
-            <div className="drawer-footer">
-              <Typography.Text type="secondary">
-                {settings.error
-                  ? `加载失败: ${settings.error}`
-                  : settings.saving
-                    ? '正在写回 .env 与 mykey.json...'
-                    : settings.dirty
-                      ? '存在未保存更改。保存后会按当前会话快照重建 agent。'
-                      : '保存后 sidecar 会按当前会话快照重建 agent。'}
-              </Typography.Text>
-              <Button
-                type="primary"
-                onClick={() => void handleSaveSettings()}
-                disabled={settings.loading || settings.saving || !port}
-              >保存配置</Button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button onClick={() => setSettings({ open: false })}>取消</Button>
+              <Button type="primary" onClick={() => void handleSaveSettings()} loading={settings.saving}>
+                保存配置
+              </Button>
             </div>
           }
+          width={520}
+          centered
+          destroyOnClose
+          className="settings-modal"
         >
-          <div className="settings-body">
+          <div style={{ padding: '4px 0' }}>
             {settingsSection === 'model' && renderModelConfig()}
             {settingsSection === 'gateway' && renderGatewayConfig()}
             {settingsSection === 'diagnostics' && renderDiagnosticsPanel()}
           </div>
-        </Drawer>
+        </Modal>
       </Layout>
       </XProvider>
     </ConfigProvider>
