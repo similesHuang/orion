@@ -1009,6 +1009,11 @@ export function App(): ReactElement {
         colorPrimaryBg: 'rgba(79,209,197,0.15)',
         colorPrimaryText: '#4fd1c5',
       },
+      Input: {
+        activeBorderColor: 'transparent',
+        activeShadow: '0 0 0 0 transparent',
+        hoverBorderColor: 'rgba(255,255,255,0.08)',
+      },
     },
   }
 
