@@ -13,8 +13,8 @@ import {
   SessionConfig,
   ToolCall,
   ToolDefinition,
-} from '@orion/types';
-import { findProjectRoot, sleep } from '@orion/shared';
+} from '../types/index.js';
+import { findProjectRoot, sleep } from '../shared/index.js';
 import { envToSessionConfigs, loadEnv } from './env-config.js';
 import { fileURLToPath } from 'url';
 

@@ -1,5 +1,5 @@
-import { SessionConfig } from '@orion/types';
-import { loadEnvFile } from '@orion/shared';
+import { SessionConfig } from '../types/index.js';
+import { loadEnvFile } from '../shared/index.js';
 
 function toBool(v: string): boolean | undefined {
   if (v === 'true' || v === '1' || v === 'yes') return true;

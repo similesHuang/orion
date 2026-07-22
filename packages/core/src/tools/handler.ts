@@ -2,8 +2,8 @@ import { spawn } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { LLMResponse } from '@orion/types';
-import { findProjectRoot, isPathContained, resolveAllowedPath } from '@orion/shared';
+import { LLMResponse } from '../types/index.js';
+import { findProjectRoot, isPathContained, resolveAllowedPath } from '../shared/index.js';
 
 export function smartFormat(data: unknown, maxStrLen = 100, omitStr = ' ... '): string {
   const s = typeof data === 'string' ? data : String(data);
