@@ -911,3 +911,83 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   .diagnostic-card dl div { grid-template-columns: 1fr; }
   .drawer-footer { flex-direction: column; align-items: flex-start; gap: 10px; }
 }
+
+/* ── Sidebar settings button ── */
+
+.sidebar-settings-btn {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+  color: rgba(255,255,255,0.35);
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+}
+.sidebar-settings-btn:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+}
+
+/* ── Settings popover menu ── */
+
+.settings-menu {
+  min-width: 180px;
+}
+.settings-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.8);
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.settings-menu-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.settings-menu-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.settings-menu-label {
+  flex: 1;
+}
+.settings-menu-badge {
+  font-size: 10px;
+  color: #4fd1c5;
+  background: rgba(79,209,197,0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ── Session list active state ── */
+
+.session-list-item {
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.session-list-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+.session-list-item.active {
+  background: rgba(79,209,197,0.08);
+  border-left: 2px solid #4fd1c5;
+  padding-left: 22px !important;
+}
+
+/* ── Settings popover overlay ── */
+
+.settings-popover .ant-popover-inner {
+  background: rgba(30, 31, 38, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
