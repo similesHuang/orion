@@ -9,8 +9,8 @@ import {
   type FormEvent,
   type ReactElement,
 } from 'react'
-import { confirm, open, save } from '@tauri-apps/plugin-dialog'
-import { readFile, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import { open } from '@tauri-apps/plugin-dialog'
+import { readFile } from '@tauri-apps/plugin-fs'
 import { Sender, XProvider } from '@ant-design/x'
 import {
   Badge,
@@ -20,24 +20,15 @@ import {
   Drawer,
   Layout,
   List,
-  Menu,
+  Popover,
   Space,
   Tooltip,
   Typography,
   theme,
 } from 'antd'
 import {
-  DeleteOutlined,
-  DownloadOutlined,
-  EditOutlined,
-  FolderAddOutlined,
-  FolderOutlined,
-  MessageOutlined,
   PaperClipOutlined,
   PlusOutlined,
-  ReloadOutlined,
-  SettingOutlined,
-  UploadOutlined,
 } from '@ant-design/icons'
 import {
   GATEWAY_SPECS,
@@ -50,14 +41,11 @@ import {
   loadState,
   maybeUpdateSessionTitle,
   saveState,
-  sessionPreview,
 } from './store'
 import {
   approveTool,
   exportBackendSnapshot,
-  exportConversation,
   importBackendSnapshot,
-  importConversation,
   loadCommands as fetchCommands,
   loadCost as fetchCost,
   loadModels as fetchModels,
@@ -189,6 +177,7 @@ export function App(): ReactElement {
   const [gatewayRunning, setGatewayRunning] = useState(false)
   const [gatewayPid, setGatewayPid] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false)
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
@@ -234,6 +223,10 @@ export function App(): ReactElement {
         .sort((left, right) => right.updatedAt - left.updatedAt),
     [chatState.sessions]
   )
+
+  const gatewayConfigured = useMemo(() => {
+    return settings.diagnostics?.gateways.some((g) => g.configured) ?? false
+  }, [settings.diagnostics])
 
   const slashMatches = useMemo(() => {
     const draft = session?.draft ?? ''
@@ -486,84 +479,6 @@ export function App(): ReactElement {
     }
   }, [addSystemMessage, loadModelsAndPing, persistActiveBackendState, port, sidecarReady, agentReady])
 
-  const handleRenameSession = useCallback(async () => {
-    if (!session) return
-    let nextTitle: string | null = null
-    try {
-      nextTitle = window.prompt('输入新的会话名', session.title)
-    } catch {
-      addSystemMessage('当前环境不支持系统输入框，请稍后再试。')
-      return
-    }
-    if (!nextTitle) return
-    dispatch({ type: 'renameCurrent', title: nextTitle })
-  }, [session, addSystemMessage])
-
-  const handleDeleteSession = useCallback(async () => {
-    if (streamingRef.current) {
-      addSystemMessage('当前正在生成中，请先停止后再删除会话。')
-      return
-    }
-    if (!session) return
-    const confirmed = await confirm(`删除会话“${session.title}”？`, {
-      title: '删除会话',
-      kind: 'warning',
-    })
-    if (!confirmed) return
-    await persistActiveBackendState()
-    const remaining = chatState.sessions.filter((item) => item.id !== session.id)
-    if (!remaining.length) remaining.push(createSession())
-    dispatch({ type: 'deleteCurrent' })
-    if (port && sidecarReady && agentReady) {
-      await importBackendSnapshot(remaining[0].backendState)
-      await loadModelsAndPing()
-    }
-  }, [addSystemMessage, chatState.sessions, loadModelsAndPing, persistActiveBackendState, port, session, sidecarReady, agentReady])
-
-  const handleCreateProjectSession = useCallback(
-    async (projectId: string) => {
-      if (streamingRef.current) {
-        addSystemMessage('当前正在生成中，请先停止后再新建会话。')
-        return
-      }
-      await persistActiveBackendState()
-      dispatch({ type: 'createSession', projectId })
-      if (port && sidecarReady && agentReady) {
-        await importBackendSnapshot(null)
-        await loadModelsAndPing()
-      }
-    },
-    [addSystemMessage, loadModelsAndPing, persistActiveBackendState, port, sidecarReady, agentReady]
-  )
-
-  const handleDeleteProject = useCallback(
-    async (projectId: string) => {
-      const project = chatState.projects.find((p) => p.id === projectId)
-      if (!project) return
-      const confirmed = await confirm(`删除 Project“${project.name}”？关联会话将变为独立会话。`, {
-        title: '删除 Project',
-        kind: 'warning',
-      })
-      if (!confirmed) return
-      dispatch({ type: 'deleteProject', projectId })
-    },
-    [chatState.projects]
-  )
-
-  const handleRenameProject = useCallback(async (projectId: string) => {
-    const project = chatState.projects.find((p) => p.id === projectId)
-    if (!project) return
-    let nextName: string | null = null
-    try {
-      nextName = window.prompt('输入新的 Project 名', project.name)
-    } catch {
-      addSystemMessage('当前环境不支持系统输入框，请稍后再试。')
-      return
-    }
-    if (!nextName) return
-    dispatch({ type: 'renameProject', projectId, name: nextName })
-  }, [chatState.projects, addSystemMessage])
-
   const handleToggleExpandProject = useCallback((projectId: string) => {
     dispatch({ type: 'toggleExpandProject', projectId })
   }, [])
@@ -603,16 +518,10 @@ export function App(): ReactElement {
     dispatch({ type: 'bindCurrentProject', projectId: project.id })
   }, [addSystemMessage, chatState.projects])
 
-  const handleRefreshProjectBranch = useCallback(async (projectId: string) => {
-    const project = chatState.projects.find((p) => p.id === projectId)
-    if (!project) return
-    try {
-      const branch = await getGitBranch(project.path)
-      dispatch({ type: 'setProjectGitBranch', projectId, gitBranch: branch })
-    } catch {
-      dispatch({ type: 'setProjectGitBranch', projectId, gitBranch: null })
-    }
-  }, [chatState.projects])
+  const handleSettingsMenuSelect = useCallback((section: string) => {
+    setSettingsPopoverOpen(false)
+    setSettings({ open: true })
+  }, [])
 
   const uploadAndAttachFile = useCallback(async (file: File) => {
     if (!session) return
@@ -678,62 +587,6 @@ export function App(): ReactElement {
       void uploadAndAttachFile(file)
     }
   }, [session, uploadAndAttachFile])
-
-  const handleExportConversation = useCallback(async () => {
-    try {
-      const blob = await exportConversation()
-      const text = await blob.text()
-
-      let savePath: string | null
-      try {
-        savePath = await save({
-          defaultPath: 'conversation.json',
-          filters: [{ name: 'JSON', extensions: ['json'] }],
-        })
-      } catch (error) {
-        addSystemMessage(`保存对话框打开失败: ${error instanceof Error ? error.message : String(error)}`)
-        return
-      }
-      if (!savePath) return
-
-      await writeTextFile(savePath, text)
-      addSystemMessage(`对话已导出到: ${savePath}`)
-    } catch (error) {
-      addSystemMessage(`导出对话失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }, [addSystemMessage])
-
-  const handleImportConversation = useCallback(async () => {
-    if (!port || !session) return
-    let selected: string | string[] | null
-    try {
-      selected = await open({
-        multiple: false,
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      })
-    } catch (error) {
-      addSystemMessage(`选择文件失败: ${error instanceof Error ? error.message : String(error)}`)
-      return
-    }
-    const filePath = Array.isArray(selected) ? selected[0] : selected
-    if (!filePath) return
-
-    try {
-      const text = await readTextFile(filePath)
-      const data = JSON.parse(text)
-
-      if (streamingRef.current) {
-        addSystemMessage('当前正在生成中，请先停止后再导入对话。')
-        return
-      }
-      await persistActiveBackendState()
-      await importConversation(data)
-      await loadModelsAndPing()
-      addSystemMessage(`对话已从 ${filePath.split('/').pop() || filePath.split('\\').pop() || 'file'} 导入`)
-    } catch (error) {
-      addSystemMessage(`导入对话失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }, [port, session, addSystemMessage, streamingRef, persistActiveBackendState, loadModelsAndPing])
 
   const handleSend = useCallback(async () => {
     if (!port || streamingRef.current || !session) return
@@ -1304,36 +1157,26 @@ export function App(): ReactElement {
           <div className="ambient ambient-b" />
           <Layout className="chat-layout">
             <Layout.Sider className="chat-sidebar" width={260}>
-            <div className="sidebar-brand">
-              <div className="brand-mark" aria-hidden="true">
-                <span className="brand-star brand-star--a" />
-                <span className="brand-star brand-star--b" />
-                <span className="brand-star brand-star--c" />
-                <span className="brand-star brand-star--d" />
-                <span className="brand-orbit" />
+            {/* Brand + New session button */}
+            <div className="sidebar-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 14px 6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="brand-mark" aria-hidden="true">
+                  <span className="brand-star brand-star--a" />
+                  <span className="brand-star brand-star--b" />
+                  <span className="brand-star brand-star--c" />
+                  <span className="brand-star brand-star--d" />
+                  <span className="brand-orbit" />
+                </div>
+                <Typography.Text className="brand-name" style={{ fontSize: 13, fontWeight: 600 }}>Orion</Typography.Text>
               </div>
-              <div className="brand-text">
-                <Typography.Text className="brand-name">Orion</Typography.Text>
-                <Typography.Text className="brand-tag">本地 Agent</Typography.Text>
-              </div>
-            </div>
-
-            <Space className="sidebar-toolbar" size={4}>
-              <Tooltip title="新建独立会话">
+              <Tooltip title="新建会话">
                 <Button type="text" size="small" icon={<PlusOutlined />} onClick={handleCreateSession} />
               </Tooltip>
-              <Tooltip title="添加 Project 目录">
-                <Button type="text" size="small" icon={<FolderAddOutlined />} onClick={() => void handleAddProjectDirectory()} />
-              </Tooltip>
-              <Tooltip title="设置">
-                <Button type="text" size="small" icon={<SettingOutlined />} onClick={() => setSettings({ open: true })} />
-              </Tooltip>
-            </Space>
+            </div>
 
             <div className="sidebar-scroll">
               {projectsSorted.length > 0 && (
                 <div className="sidebar-section">
-                  <Typography.Text className="sidebar-section-title">Projects</Typography.Text>
                   <Collapse
                     bordered={false}
                     activeKey={chatState.expandedProjectIds}
@@ -1354,71 +1197,33 @@ export function App(): ReactElement {
                       return {
                         key: project.id,
                         label: (
-                          <div className="project-collapse-header">
-                            <Space size={4}>
-                              <FolderOutlined className="project-icon" />
-                              <span className="project-name-text">{project.name}</span>
-                              {project.gitBranch && (
-                                <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: '#3b82f6' }} />
-                              )}
-                            </Space>
-                            <Space size={2} className="project-header-actions">
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<ReloadOutlined />}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleRefreshProjectBranch(project.id)
-                                }}
-                              />
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<EditOutlined />}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleRenameProject(project.id)
-                                }}
-                              />
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<PlusOutlined />}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleCreateProjectSession(project.id)
-                                }}
-                              />
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleDeleteProject(project.id)
-                                }}
-                              />
-                            </Space>
+                          <div className="project-collapse-header" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>{project.name}</span>
+                            {project.gitBranch && (
+                              <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: '#3b82f6', fontSize: 9 }} />
+                            )}
                           </div>
                         ),
                         children: (
                           <List
                             size="small"
                             dataSource={sessionsOfProject}
-                            locale={{ emptyText: '该 Project 下暂无会话' }}
+                            locale={{ emptyText: '暂无会话' }}
                             renderItem={(item) => (
                               <List.Item
                                 key={item.id}
                                 className={`session-list-item ${item.id === session?.id ? 'active' : ''}`}
                                 onClick={() => void handleSwitchSession(item.id)}
+                                style={{ padding: '4px 6px 4px 24px', border: 'none', cursor: 'pointer' }}
                               >
-                                <List.Item.Meta
-                                  title={<span className="session-item-title">{item.title}</span>}
-                                  description={<span className="session-item-desc">{sessionPreview(item)}</span>}
-                                />
-                                <span className="session-item-time">{formatUpdatedAt(item.updatedAt)}</span>
+                                <div style={{ width: '100%', overflow: 'hidden' }}>
+                                  <div style={{ fontSize: 12, color: item.id === session?.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {item.title}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
+                                    {formatUpdatedAt(item.updatedAt)}
+                                  </div>
+                                </div>
                               </List.Item>
                             )}
                           />
@@ -1429,42 +1234,47 @@ export function App(): ReactElement {
                 </div>
               )}
 
-              <div className="sidebar-section">
-                <Typography.Text className="sidebar-section-title">独立会话</Typography.Text>
-                <Menu
-                  mode="inline"
-                  selectedKeys={session?.projectId ? [] : [session?.id]}
-                  items={standaloneSessions.map((item) => ({
-                    key: item.id,
-                    icon: <MessageOutlined />,
-                    label: (
-                      <div className="standalone-session-item" onClick={() => void handleSwitchSession(item.id)}>
-                        <span className="session-item-title">{item.title}</span>
-                        <span className="session-item-time">{formatUpdatedAt(item.updatedAt)}</span>
-                      </div>
-                    ),
-                  }))}
-                />
+              <div className="sidebar-section" style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 6px' }}>
+                  <Typography.Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                    独立会话
+                  </Typography.Text>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
+                    {standaloneSessions.length}
+                  </span>
+                </div>
+                {standaloneSessions.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`session-list-item ${item.id === session?.id ? 'active' : ''}`}
+                    onClick={() => void handleSwitchSession(item.id)}
+                    style={{ padding: '4px 6px 4px 22px', cursor: 'pointer', borderRadius: 4 }}
+                  >
+                    <div style={{ fontSize: 12, color: item.id === session?.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {item.title}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 1 }}>
+                      {formatUpdatedAt(item.updatedAt)}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="sidebar-footer">
-              <Typography.Text type="secondary" className="current-session-label">当前会话</Typography.Text>
-              <Typography.Text className="current-session-name" ellipsis>{session?.title || '未命名会话'}</Typography.Text>
-              <Space size={4}>
-                <Tooltip title="重命名">
-                  <Button type="text" size="small" icon={<EditOutlined />} onClick={() => void handleRenameSession()} />
-                </Tooltip>
-                <Tooltip title="删除">
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => void handleDeleteSession()} />
-                </Tooltip>
-                <Tooltip title="导出对话">
-                  <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => void handleExportConversation()} />
-                </Tooltip>
-                <Tooltip title="导入对话">
-                  <Button type="text" size="small" icon={<UploadOutlined />} onClick={() => void handleImportConversation()} />
-                </Tooltip>
-              </Space>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 12px' }}>
+              <Popover
+                content={<div style={{ padding: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>设置面板（待完善）</div>}
+                trigger="click"
+                placement="top"
+                overlayClassName="settings-popover"
+                open={settingsPopoverOpen}
+                onOpenChange={setSettingsPopoverOpen}
+              >
+                <div className="sidebar-settings-btn">
+                  <span style={{ fontSize: 13, marginRight: 6 }}>⚙</span>
+                  <span style={{ fontSize: 11 }}>设置</span>
+                </div>
+              </Popover>
             </div>
           </Layout.Sider>
 
