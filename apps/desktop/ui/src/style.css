@@ -428,11 +428,11 @@ body { background: var(--bg); }
 
 .inline-code, .markdown-body :not(pre) > code {
   padding: 1.5px 6px;
-  border-radius: 5px;
-  background: var(--raised);
-  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--agent-soft);
+  border: 1px solid color-mix(in srgb, var(--agent) 20%, transparent);
   font: 0.88em var(--mono);
-  color: var(--you);
+  color: var(--agent);
 }
 
 /* Streaming cursor — the companion "typing". */
