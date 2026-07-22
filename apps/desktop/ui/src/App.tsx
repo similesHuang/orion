@@ -71,6 +71,7 @@ import {
   streamBuffer,
 } from './utils'
 import { TaskFeed } from './components/TaskFeed'
+import { SettingsMenu } from './components/SettingsMenu'
 import type {
   CommandSpec,
   CostStats,
@@ -781,6 +782,11 @@ export function App(): ReactElement {
     }
   }, [addSystemMessage])
 
+  const handleSettingsMenuSelect = useCallback((section: string) => {
+    setSettingsPopoverOpen(false)
+    setSettings({ open: true })
+  }, [])
+
   const handleApproval = useCallback(
     async (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => {
       const ctx = approvalCtxRef.current.get(approvalId)
@@ -1131,7 +1137,7 @@ export function App(): ReactElement {
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 12px' }}>
               <Popover
-                content={<div style={{ padding: 8, fontSize: 12, color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }} onClick={() => { setSettingsPopoverOpen(false); setSettings({ open: true }); }}>打开设置面板</div>}
+                content={<SettingsMenu onSelect={handleSettingsMenuSelect} gatewayConfigured={gatewayConfigured} />}
                 trigger="click"
                 placement="top"
                 overlayClassName="settings-popover"
