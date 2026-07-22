@@ -998,6 +998,7 @@ export function App(): ReactElement {
       colorPrimaryHover: '#6ee0d5',
       colorPrimaryActive: '#3bb8ac',
       colorLink: '#4fd1c5',
+      controlOutline: 'transparent',
       borderRadius: 10,
       fontFamily:
         '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
