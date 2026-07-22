@@ -1,0 +1,73 @@
+<h2>设置面板 — 正确使用 Ant Design 版本</h2>
+<p class="subtitle">使用 Modal + Form + Input + Card，去掉自定义 CSS 覆盖</p>
+
+<div class="mockup" style="margin-bottom:16px;">
+  <div class="mockup-header" style="background:linear-gradient(90deg,rgba(79,209,197,0.15),rgba(99,102,241,0.1));border-bottom:1px solid rgba(255,255,255,0.06);">
+    Ant Design 方案
+  </div>
+  <div class="mockup-body" style="background:linear-gradient(135deg,#0f0f1a,#1a1a2e,#16213e);padding:0;display:flex;height:460px;position:relative;">
+    <!-- Dimmed overlay — opaque -->
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;">
+      <!-- Modal — minimal custom CSS, let Ant Design handle it -->
+      <div style="width:520px;background:#1c1d21;border-radius:12px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;">
+
+        <!-- Header — using Ant Design Modal default structure, just set title -->
+        <div style="padding:16px 24px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">设置</div>
+            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.9);">🤖 模型配置</div>
+          </div>
+          <span style="font-size:16px;color:rgba(255,255,255,0.2);cursor:default;">✕</span>
+        </div>
+
+        <!-- Body — using antd Form with Form.Items -->
+        <div style="padding:20px 24px;">
+          <div style="margin-bottom:16px;">
+            <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">LLM 类型</div>
+            <div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:7px 11px;color:rgba(255,255,255,0.85);font-size:14px;">openai</div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">API Key</div>
+            <div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:7px 11px;color:rgba(255,255,255,0.25);font-size:14px;">••••••••••••••••</div>
+          </div>
+          <div style="display:flex;gap:12px;margin-bottom:16px;">
+            <div style="flex:1;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">Model</div>
+              <div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:7px 11px;color:rgba(255,255,255,0.85);font-size:14px;">claude-opus-4</div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:13px;color:rgba(255,255,255,0.65);margin-bottom:6px;">Max Tokens</div>
+              <div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:7px 11px;color:rgba(255,255,255,0.45);font-size:14px;">4096</div>
+            </div>
+          </div>
+
+          <!-- Other env vars — collapsed by default -->
+          <details style="margin-top:4px;">
+            <summary style="font-size:13px;color:rgba(255,255,255,0.35);cursor:pointer;padding:4px 0;">其他环境变量 (5)</summary>
+            <div style="margin-top:8px;display:flex;flex-direction:column;gap:10px;">
+              <div><div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:4px;">LLM_TEMPERATURE</div><div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:6px 10px;font-size:13px;color:rgba(255,255,255,0.45);">0.7</div></div>
+              <div><div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:4px;">LLM_TIMEOUT</div><div style="background:#0d0e12;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:6px 10px;font-size:13px;color:rgba(255,255,255,0.45);">120</div></div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Footer — using antd Button structure -->
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 24px;border-top:1px solid rgba(255,255,255,0.06);">
+          <span style="padding:4px 15px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);font-size:14px;color:rgba(255,255,255,0.65);cursor:default;">取消</span>
+          <span style="padding:4px 15px;border-radius:6px;background:#4fd1c5;font-size:14px;color:#000;cursor:default;font-weight:500;">保存配置</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>关键变化</h3>
+<div class="section">
+  <ul>
+    <li><b>去掉所有自定义 CSS 覆盖</b> — 不再设置 <code>.ant-modal-header { background: transparent }</code> 等覆盖。只用 <code>className="settings-modal"</code> + 主题 token</li>
+    <li><b>用 Ant Design Form + Input</b> — 替换自定义 FieldInput。用 <code>Form.Item label="..." + Input /></code> 或 <code>Input.Password</code></li>
+    <li><b>输入框底色</b> — <code>#0d0e12</code> 比 Modal 底色再深一层</li>
+    <li><b>整体实心</b> — Modal 背景 <code>#1c1d21</code>，所有子元素不透明。设置 Ant Design token <code>colorBgElevated: '#1c1d21'</code> 即全局生效</li>
+    <li><b>Modal 的 CSS 只需要 3 条规则</b> — 圆角 + 背景 + 输入框底色，其他都交给 Ant Design 主题 token</li>
+  </ul>
+</div>

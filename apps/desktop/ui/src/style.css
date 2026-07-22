@@ -91,12 +91,12 @@ body { background: var(--bg); }
 
 /* Chat message bubbles */
 .message-user {
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: var(--you-soft);
+  border: 1px solid var(--you-soft);
   border-radius: 12px 4px 12px 12px;
 }
 .message-assistant {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface);
   backdrop-filter: blur(8px);
   border: 1px solid var(--line);
   border-radius: 4px 12px 12px 12px;
@@ -217,7 +217,7 @@ body { background: var(--bg); }
 
 .sidebar-footer .ant-btn { color: var(--ink-mute); }
 .sidebar-footer .ant-btn:hover { color: var(--agent); background: var(--agent-soft); }
-.sidebar-footer .ant-btn-dangerous:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+.sidebar-footer .ant-btn-dangerous:hover { color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
 
 /* ── Main column ── */
 
@@ -275,7 +275,7 @@ body { background: var(--bg); }
   transition: background 120ms ease, color 120ms ease;
 }
 .window-btn:hover { background: var(--raised); color: var(--ink); }
-.window-btn.close:hover { background: #e0484d; color: #fff; }
+.window-btn.close:hover { background: var(--error); color: #fff; }
 
 /* ── Messages / feed ── */
 
@@ -325,7 +325,7 @@ body { background: var(--bg); }
 }
 .task-status--running { color: var(--agent); background: var(--agent-soft); }
 .task-status--done { color: var(--ok); background: rgba(110, 231, 168, 0.1); }
-.task-status--error { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+.task-status--error { color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
 
 .task-turns { display: flex; flex-direction: column; gap: 18px; }
 
@@ -380,7 +380,7 @@ body { background: var(--bg); }
 /* User text gets a soft clay-edged card; agent text is bare on the desk for readability. */
 .turn--user .block--text {
   background: var(--you-soft);
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-color: var(--you-soft);
   border-radius: var(--r-md);
   border-top-left-radius: 4px;
 }
@@ -432,7 +432,7 @@ body { background: var(--bg); }
   background: var(--raised);
   border: 1px solid var(--line);
   font: 0.88em var(--mono);
-  color: #a5b4fc;
+  color: var(--you);
 }
 
 /* Streaming cursor — the companion "typing". */
@@ -488,7 +488,7 @@ body { background: var(--bg); }
 
 .code-block pre, .code-scroll pre { margin: 0; padding: 13px 14px; overflow: auto; font: 12.8px/1.62 var(--mono); }
 .code-scroll pre { background: transparent !important; }
-.code-plain { color: #d6d3cc; }
+.code-plain { color: var(--ink-dim); }
 .code-block code, .code-block .inline-code { padding: 0; background: transparent; border: none; color: inherit; }
 
 /* ── Reasoning (thought) ── */
@@ -534,13 +534,13 @@ body { background: var(--bg); }
 .tool-card {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   overflow: hidden;
 }
 .tool-card--running { border-color: var(--agent-glow); box-shadow: 0 0 0 1px var(--agent-soft); }
-.tool-card--error { border-color: rgba(239, 68, 68, 0.4); }
+.tool-card--error { border-color: color-mix(in srgb, var(--error) 40%, transparent); }
 
 .tool-card-head {
   display: flex;
@@ -616,11 +616,11 @@ body { background: var(--bg); }
   gap: 10px;
   padding: 11px 13px;
   border-radius: var(--r-md);
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  border-color: color-mix(in srgb, var(--error) 24%, transparent);
 }
 .block-error-mark { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--error); color: #0f0f1a; font-weight: 800; font-size: 12px; }
-.block-error .markdown-body { color: #fca5a5; font-size: 13.5px; }
+.block-error .markdown-body { color: var(--error); font-size: 13.5px; }
 
 .block-summary { padding: 11px 13px; border-radius: var(--r-md); background: var(--agent-soft); border: 1px solid var(--agent-glow); }
 
@@ -629,7 +629,7 @@ body { background: var(--bg); }
 .approval {
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   padding: 12px 13px;
@@ -654,7 +654,7 @@ body { background: var(--bg); }
   border-radius: var(--r-sm);
   background: rgba(0, 0, 0, 0.18);
   border: 1px solid var(--line);
-  color: #a5b4fc;
+  color: var(--you);
   font: 12px/1.55 var(--mono);
   overflow: auto;
   max-height: 160px;
@@ -678,7 +678,7 @@ body { background: var(--bg); }
 .approval-btn--allow { background: var(--agent); color: #0f0f1a; border-color: var(--agent); }
 .approval-btn--allow:hover { filter: brightness(1.08); }
 .approval-btn--session:hover { border-color: var(--agent-glow); color: var(--agent); background: var(--agent-soft); }
-.approval-btn--deny:hover { border-color: rgba(239, 68, 68, 0.5); color: var(--error); background: rgba(239, 68, 68, 0.1); }
+.approval-btn--deny:hover { border-color: color-mix(in srgb, var(--error) 50%, transparent); color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
 
 /* ── Empty state ── */
 
@@ -725,10 +725,10 @@ body { background: var(--bg); }
   width: 100%;
   max-width: 908px;
   margin: 0 auto;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
   border-radius: 12px;
 }
 
@@ -763,10 +763,10 @@ body { background: var(--bg); }
 .slash-desc { font-size: 12px; color: var(--ink-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .orion-sender, .antx-sender {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
   transition: border-color 160ms ease, box-shadow 160ms ease;
@@ -930,7 +930,7 @@ body { background: var(--bg); }
 
 .settings-loading, .settings-error { padding: 15px 18px; border-radius: var(--r-md); border: 1px solid var(--line); }
 .settings-loading { background: var(--raised); color: var(--ink-mute); }
-.settings-error { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.24); color: var(--error); }
+.settings-error { background: color-mix(in srgb, var(--error) 10%, transparent); border-color: rgba(239, 68, 68, 0.24); color: var(--error); }
 
 .gateway-grid, .gateway-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
 .gateway-card, .diagnostic-card, .gateway-status-card { padding: 15px; border-radius: var(--r-md); border: 1px solid var(--line); background: rgba(0, 0, 0, 0.15); }
@@ -947,7 +947,7 @@ body { background: var(--bg); }
 .diagnostic-card dd { margin: 0; color: var(--ink); word-break: break-word; }
 .diagnostic-pre { margin: 13px 0 0; padding: 12px; border-radius: var(--r-md); background: rgba(0, 0, 0, 0.18); color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; font: 12px/1.6 var(--mono); }
 
-.settings-copy code { padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--line); font: 0.88em var(--mono); color: #a5b4fc; }
+.settings-copy code { padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--line); font: 0.88em var(--mono); color: var(--you); }
 
 button:disabled { cursor: not-allowed; opacity: 0.6; }
 

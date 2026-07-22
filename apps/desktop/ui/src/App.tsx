@@ -1061,7 +1061,7 @@ export function App(): ReactElement {
                           <div className="project-collapse-header" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <span style={{ fontSize: 12, color: 'var(--ink-dim)', fontWeight: 500 }}>{project.name}</span>
                             {project.gitBranch && (
-                              <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: '#3b82f6', fontSize: 9 }} />
+                              <Badge count={project.gitBranch} color="blue" style={{ backgroundColor: 'var(--agent)', fontSize: 9 }} />
                             )}
                           </div>
                         ),
