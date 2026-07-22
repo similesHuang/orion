@@ -28,3 +28,4 @@ apps/*/src/**/*.d.ts
 apps/*/sidecar/**/*.js
 apps/*/sidecar/**/*.js.map
 apps/*/sidecar/**/*.d.ts
+.superpowers/
