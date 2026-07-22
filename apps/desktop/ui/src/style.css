@@ -779,6 +779,7 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   box-shadow: 0 0 0 3px var(--agent-soft);
 }
 .orion-sender textarea, .antx-sender textarea { color: var(--ink); font: inherit; font-size: 14.5px; outline: none; }
+#app .ant-input:focus { outline: none !important; }
 .orion-sender textarea::placeholder { color: var(--ink-mute); }
 .orion-sender textarea::placeholder { color: var(--ink-mute); }
 
