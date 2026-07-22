@@ -130,10 +130,10 @@ function ToolBlockView({ step }: { step: TimelineStep }): ReactElement {
               <pre>{JSON.stringify(step.args, null, 2)}</pre>
             </div>
           )}
-          {step.resultSummary && (
+          {step.resultSummary && step.status !== 'running' && (
             <div className="tool-raw">
               <span className="tool-raw-label">结果</span>
-              <pre>{step.resultSummary}</pre>
+              <MarkdownBlock text={step.resultSummary} />
             </div>
           )}
         </div>
