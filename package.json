@@ -8,16 +8,15 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "pnpm -r build",
-    "dev": "pnpm --filter @orion/cli dev",
-    "cli": "pnpm --filter @orion/cli cli",
+    "build": "pnpm --filter @orion/core build",
+    "dev": "tsx apps/desktop/sidecar/chat-sidecar.ts",
     "desktop:dev": "pnpm --filter @orion/desktop dev:clean",
     "desktop:build": "pnpm --filter @orion/desktop build",
     "gateway": "pnpm --filter @orion/gateway start",
     "lint": "eslint packages apps",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "clean": "pnpm -r exec rm -rf dist",
-    "ultraplan:daemon": "tsx packages/agent/src/ultraplan-daemon.ts --daemon"
+    "ultraplan:daemon": "tsx packages/core/src/agent/ultraplan-daemon.ts"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
