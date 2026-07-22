@@ -139,3 +139,38 @@ export async function stopGeneration(): Promise<void> {
 export async function getGitBranch(path: string): Promise<string | null> {
   return invoke<string | null>('get_git_branch', { path })
 }
+
+// ---------------------------------------------------------------------------
+// File attachment & conversation import/export
+// ---------------------------------------------------------------------------
+
+export async function uploadFile(file: File): Promise<{ path: string; name: string; size: number }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch(`${baseUrl()}/api/upload`, { method: 'POST', body: formData })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`上传失败 (HTTP ${response.status}): ${text.slice(0, 200)}`)
+  }
+  return response.json() as Promise<{ path: string; name: string; size: number }>
+}
+
+/**
+ * Fetch the current backend snapshot as a JSON blob (for file download).
+ */
+export async function exportConversation(): Promise<Blob> {
+  const response = await fetch(`${baseUrl()}/api/session/export`)
+  if (!response.ok) throw new Error(`导出失败: HTTP ${response.status}`)
+  return response.blob()
+}
+
+/**
+ * Import a conversation from a previously exported JSON snapshot.
+ */
+export async function importConversation(data: unknown): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>('/api/session/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}

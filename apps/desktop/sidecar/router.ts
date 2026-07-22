@@ -1,8 +1,11 @@
 import type http from 'node:http'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { AgentYield, buildDoneText, costTracker, GenericAgent, HELP_COMMANDS } from '@orion/core'
 import { sseEvent, json } from './sse.js'
 import {
+  PROJECT_ROOT,
   readEnvConfig,
   readMykeyConfig,
   writeEnvConfig,
@@ -282,6 +285,75 @@ export function handleSessionImport(req: http.IncomingMessage, res: http.ServerR
       if (payload) rebuildAgent(payload)
       else rebuildAgent()
       json(res, 200, { ok: true, current: agent?.llmNo ?? 0 }, cors)
+    } catch (error) {
+      json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
+    }
+  })()
+}
+
+// ---------------------------------------------------------------------------
+// File upload
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a multipart/form-data body and extract the first file part with
+ * name="file". Returns the filename and raw data, or null if no file found.
+ */
+function parseMultipartFile(body: Buffer, boundary: string): { filename: string; data: Buffer } | null {
+  const parts = body.toString('binary').split(`--${boundary}`)
+  for (const part of parts) {
+    if (!part.includes('Content-Disposition')) continue
+    const headerEnd = part.indexOf('\r\n\r\n')
+    if (headerEnd === -1) continue
+    if (!part.slice(0, headerEnd).includes('name="file"')) continue
+
+    // Extract filename from Content-Disposition header
+    const filenameMatch = part.match(/filename="([^"]*)"/)
+    const filename = filenameMatch ? filenameMatch[1] : 'unnamed'
+
+    // Extract data and strip trailing boundary marker / CRLF
+    let rawData = part.slice(headerEnd + 4)
+    rawData = rawData.replace(/\r?\n--\s*$/, '')
+
+    return { filename, data: Buffer.from(rawData, 'binary') }
+  }
+  return null
+}
+
+export function handleUpload(req: http.IncomingMessage, res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
+  void (async () => {
+    try {
+      // Read full request body
+      const chunks: Buffer[] = []
+      for await (const chunk of req) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+      }
+      const body = Buffer.concat(chunks)
+
+      const contentType = req.headers['content-type'] || ''
+      let filename: string
+      let fileData: Buffer
+
+      if (contentType.includes('multipart/form-data')) {
+        const boundaryMatch = contentType.match(/boundary=([^;]+)/)
+        if (!boundaryMatch) throw new Error('Missing boundary in multipart/form-data request')
+        const result = parseMultipartFile(body, boundaryMatch[1])
+        if (!result) throw new Error('No file part found in upload (expected name="file")')
+        filename = result.filename
+        fileData = result.data
+      } else {
+        // Raw body upload — filename from header or query param
+        filename = (req.headers['x-filename'] as string) || 'unnamed'
+        fileData = body
+      }
+
+      const attachDir = path.join(PROJECT_ROOT, 'temp', 'attachments')
+      fs.mkdirSync(attachDir, { recursive: true })
+      const safeName = `${crypto.randomUUID()}-${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      const dest = path.join(attachDir, safeName)
+      fs.writeFileSync(dest, fileData)
+
+      json(res, 200, { path: dest, name: filename, size: fileData.length }, cors)
     } catch (error) {
       json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
     }

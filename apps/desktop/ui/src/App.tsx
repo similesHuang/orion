@@ -8,7 +8,8 @@ import {
   type FormEvent,
   type ReactElement,
 } from 'react'
-import { confirm, open } from '@tauri-apps/plugin-dialog'
+import { confirm, open, save } from '@tauri-apps/plugin-dialog'
+import { readFile, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { Sender, XProvider } from '@ant-design/x'
 import {
   Badge,
@@ -26,13 +27,16 @@ import {
 } from 'antd'
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   FolderAddOutlined,
   FolderOutlined,
   MessageOutlined,
+  PaperClipOutlined,
   PlusOutlined,
   ReloadOutlined,
   SettingOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import {
   GATEWAY_SPECS,
@@ -50,7 +54,9 @@ import {
 import {
   approveTool,
   exportBackendSnapshot,
+  exportConversation,
   importBackendSnapshot,
+  importConversation,
   loadCommands as fetchCommands,
   loadCost as fetchCost,
   loadModels as fetchModels,
@@ -58,6 +64,7 @@ import {
   pingSidecar,
   saveSettings as postSettings,
   selectLlm,
+  uploadFile,
   baseUrl,
   setSidecarPort,
   startSidecar as startSidecarCmd,
@@ -599,6 +606,95 @@ export function App(): ReactElement {
       dispatch({ type: 'setProjectGitBranch', projectId, gitBranch: null })
     }
   }, [chatState.projects])
+
+  const handleAttachFile = useCallback(async () => {
+    if (!session) return
+    let selected: string | string[] | null
+    try {
+      selected = await open({ multiple: false })
+    } catch (error) {
+      addSystemMessage(`选择文件失败: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const filePath = Array.isArray(selected) ? selected[0] : selected
+    if (!filePath) return
+
+    // Read the file via Tauri fs plugin and upload to the sidecar
+    try {
+      const uint8 = await readFile(filePath)
+      const name = filePath.split('/').pop() || filePath.split('\\').pop() || 'file'
+      const blob = new Blob([uint8])
+      const file = new File([blob], name)
+      const result = await uploadFile(file)
+
+      // Inject the file path into the draft text (append a reference)
+      const tag = `[附件: ${result.name}](sidecar://attachment/${result.path})`
+      dispatch({
+        type: 'setDraft',
+        sessionId: session.id,
+        draft: session.draft ? `${session.draft}\n${tag}` : tag,
+      })
+      addSystemMessage(`已上传附件: ${result.name}`)
+    } catch (error) {
+      addSystemMessage(`上传附件失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [session, addSystemMessage])
+
+  const handleExportConversation = useCallback(async () => {
+    try {
+      const blob = await exportConversation()
+      const text = await blob.text()
+
+      let savePath: string | null
+      try {
+        savePath = await save({
+          defaultPath: 'conversation.json',
+          filters: [{ name: 'JSON', extensions: ['json'] }],
+        })
+      } catch (error) {
+        addSystemMessage(`保存对话框打开失败: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      if (!savePath) return
+
+      await writeTextFile(savePath, text)
+      addSystemMessage(`对话已导出到: ${savePath}`)
+    } catch (error) {
+      addSystemMessage(`导出对话失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [addSystemMessage])
+
+  const handleImportConversation = useCallback(async () => {
+    if (!port || !session) return
+    let selected: string | string[] | null
+    try {
+      selected = await open({
+        multiple: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+    } catch (error) {
+      addSystemMessage(`选择文件失败: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const filePath = Array.isArray(selected) ? selected[0] : selected
+    if (!filePath) return
+
+    try {
+      const text = await readTextFile(filePath)
+      const data = JSON.parse(text)
+
+      if (streamingRef.current) {
+        addSystemMessage('当前正在生成中，请先停止后再导入对话。')
+        return
+      }
+      await persistActiveBackendState()
+      await importConversation(data)
+      await loadModelsAndPing()
+      addSystemMessage(`对话已从 ${filePath.split('/').pop() || filePath.split('\\').pop() || 'file'} 导入`)
+    } catch (error) {
+      addSystemMessage(`导入对话失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [port, session, addSystemMessage, streamingRef, persistActiveBackendState, loadModelsAndPing])
 
   const handleSend = useCallback(async () => {
     if (!port || streamingRef.current || !session) return
@@ -1306,6 +1402,12 @@ export function App(): ReactElement {
                 <Tooltip title="删除">
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => void handleDeleteSession()} />
                 </Tooltip>
+                <Tooltip title="导出对话">
+                  <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => void handleExportConversation()} />
+                </Tooltip>
+                <Tooltip title="导入对话">
+                  <Button type="text" size="small" icon={<UploadOutlined />} onClick={() => void handleImportConversation()} />
+                </Tooltip>
               </Space>
             </div>
           </Layout.Sider>
@@ -1446,6 +1548,17 @@ export function App(): ReactElement {
                 disabled={!sidecarReady}
                 submitType="enter"
                 placeholder={sidecarReady ? '输入任务、命令或问题' : 'sidecar 启动中…'}
+                prefix={
+                  <Tooltip title="上传附件">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<PaperClipOutlined />}
+                      className="attach-btn"
+                      onClick={() => void handleAttachFile()}
+                    />
+                  </Tooltip>
+                }
                 footer={
                   <div className="project-binding-bar">
                     <Space>

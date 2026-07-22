@@ -21,6 +21,7 @@ import {
   handleSessionExport,
   handleSessionReset,
   handleSessionImport,
+  handleUpload,
   handleChat,
 } from './router.js'
 
@@ -119,6 +120,11 @@ async function main(): Promise<void> {
 
     if (url.pathname === '/api/session/import' && req.method === 'POST') {
       handleSessionImport(req, res, cors, activeRequests)
+      return
+    }
+
+    if (url.pathname === '/api/upload' && req.method === 'POST') {
+      handleUpload(req, res, cors)
       return
     }
 
