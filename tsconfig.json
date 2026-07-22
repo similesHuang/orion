@@ -9,9 +9,6 @@
     { "path": "./packages/tools" },
     { "path": "./packages/llm" },
     { "path": "./packages/memory" },
-    { "path": "./packages/chat" },
-    { "path": "./packages/agent" },
-    { "path": "./packages/reflect" },
     { "path": "./packages/core" },
     { "path": "./apps/cli" },
     { "path": "./apps/gateway" }

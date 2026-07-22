@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { getWorkspaceRoot } from '@orion/shared';
-import { llmUsageHooks } from '@orion/llm';
+import { getWorkspaceRoot } from '../shared/index.js';
+import { llmUsageHooks } from '../llm/index.js';
 
 export interface TokenStats {
   requests: number;

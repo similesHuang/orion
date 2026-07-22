@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { LLMResponse } from '@orion/types';
-import { findProjectRoot, resolveAllowedPath } from '@orion/shared';
+import { LLMResponse } from '../types/index.js';
+import { findProjectRoot, resolveAllowedPath } from '../shared/index.js';
 import {
   codeRun,
   consumeFile,
@@ -17,7 +17,7 @@ import {
   webExecuteJs,
   webNavigate,
   webScan,
-} from '@orion/tools';
+} from '../tools/index.js';
 import { runInlineSandbox } from './inline-sandbox.js';
 import { BaseHandler, StepOutcome } from './agent-loop.js';
 

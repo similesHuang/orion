@@ -1,9 +1,9 @@
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
-import { findProjectRoot } from '@orion/shared';
-import type { AgentYield, GenericAgentLike } from '@orion/agent';
-import { costTracker, renderAgentYieldToText } from '@orion/agent';
+import { findProjectRoot } from '../shared/index.js';
+import type { AgentYield, GenericAgentLike } from '../agent/index.js';
+import { costTracker, renderAgentYieldToText } from '../agent/index.js';
 import { handleContinueFrontend, resetConversation } from './continue-cmd.js';
 import { handleBtwAsync } from './btw-cmd.js';
 import { handleReviewFrontend } from './review-cmd.js';
@@ -15,10 +15,10 @@ import {
   parseModelResponsePairs,
   parseNativePrompt,
 } from './history-utils.js';
-export { costTracker } from '@orion/agent';
+export { costTracker } from '../agent/index.js';
 export { handleBtwAsync, handleReviewFrontend };
 export { handleContinueFrontend, resetConversation } from './continue-cmd.js';
-export { loadMykey, projectRootFrom } from '@orion/shared';
+export { loadMykey, projectRootFrom } from '../shared/index.js';
 export { createWebhookServer } from './gateway-utils.js';
 
 export const HELP_COMMANDS: Array<[string, string]> = [
@@ -238,7 +238,7 @@ export function redirectLog(scriptFile: string, logName: string, label: string, 
   console.log(`[${label}] allow list: ${allowedLabel(allowed)}`);
 }
 
-export type { GenericAgentLike, TaskQueueLike } from '@orion/agent';
+export type { GenericAgentLike, TaskQueueLike } from '../agent/index.js';
 
 export interface AgentChatCtx {
   [key: string]: unknown;

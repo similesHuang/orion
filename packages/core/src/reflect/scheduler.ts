@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { workspacePath } from '@orion/shared';
-import { batchProcess } from '@orion/memory';
+import { workspacePath } from '../shared/index.js';
+import { batchProcess } from '../memory/index.js';
 
 export interface SchedulerTask {
   enabled?: boolean;

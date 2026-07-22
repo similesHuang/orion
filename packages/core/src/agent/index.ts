@@ -3,18 +3,18 @@ import path from 'path';
 import readline from 'readline';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { findProjectRoot, sleep } from '@orion/shared';
+import { findProjectRoot, sleep } from '../shared/index.js';
 import { agentRunnerLoop } from './agent-loop.js';
 import {
   createClient,
   loadSessionsFromEnv,
   NativeToolClient,
-} from '@orion/llm';
-import { AgentYield, BaseSession, Message, TaskQueueLike } from '@orion/types';
+} from '../llm/index.js';
+import { AgentYield, BaseSession, Message, TaskQueueLike } from '../types/index.js';
 import * as costTracker from './cost-tracker.js';
 import { GenericAgentHandler, HandlerParent } from './handler-base.js';
 
-export type { BaseSession, Message, TaskQueueLike, GenericAgentLike, AgentYield } from '@orion/types';
+export type { BaseSession, Message, TaskQueueLike, GenericAgentLike, AgentYield } from '../types/index.js';
 export { GenericAgentHandler, HandlerParent, ToolDeniedError } from './handler-base.js';
 export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from './agent-loop.js';
 export * as ultraplan from './ultraplan.js';

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { workspacePath } from '@orion/shared';
+import { workspacePath } from '../shared/index.js';
 import http from 'http';
 import https from 'https';
 

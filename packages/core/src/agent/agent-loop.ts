@@ -1,4 +1,4 @@
-import { AgentYield, LLMResponse, LLMStreamDelta, Message } from '@orion/types';
+import { AgentYield, LLMResponse, LLMStreamDelta, Message } from '../types/index.js';
 
 export interface AgentLoopHook {
   onStart(input: { userInput: string }): unknown;

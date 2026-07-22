@@ -1,5 +1,5 @@
-import type { Message } from '@orion/agent';
-import type { BaseSession, LLMResponse, LLMStreamDelta } from '@orion/types';
+import type { Message } from '../agent/index.js';
+import type { BaseSession, LLMResponse, LLMStreamDelta } from '../types/index.js';
 import type { GenericAgentLike } from './index.js';
 
 const WRAPPER_ZH = `<system-reminder>

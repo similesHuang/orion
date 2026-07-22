@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Message } from '@orion/agent';
+import type { Message } from '../agent/index.js';
 import type { GenericAgentLike, SessionInfo } from './index.js';
 import { listSessions, snapshotCurrentLog } from './index.js';
 import {

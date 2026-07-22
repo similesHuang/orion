@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getWorkspaceRoot, globalPath } from '@orion/shared';
+import { getWorkspaceRoot, globalPath } from '../shared/index.js';
 
 const PROMPT_DIR = 'review_sop';
 const INLINE_PROMPT_ZH = 'review_inline_prompt.txt';
