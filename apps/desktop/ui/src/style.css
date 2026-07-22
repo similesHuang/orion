@@ -728,6 +728,11 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   width: 100%;
   max-width: 908px;
   margin: 0 auto;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
 }
 
 .slash-hints {
@@ -764,16 +769,16 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   background: rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  transition: border-color 160ms ease;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 .orion-sender:focus-within, .antx-sender:focus-within {
-  border-color: transparent;
-  box-shadow: none;
+  border-color: var(--agent-glow);
+  box-shadow: 0 0 0 3px var(--agent-soft);
 }
-.orion-sender textarea, .antx-sender textarea { color: var(--ink); font: inherit; font-size: 14.5px; }
+.orion-sender textarea, .antx-sender textarea { color: var(--ink); font: inherit; font-size: 14.5px; outline: none; }
 .orion-sender textarea::placeholder { color: var(--ink-mute); }
 
 /* ── Sidebar project collapse / sessions ── */
