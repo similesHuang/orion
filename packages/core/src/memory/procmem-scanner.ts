@@ -4,7 +4,7 @@
  *  only delegates to the Python script on Windows when available.
  */
 import path from 'path';
-import { globalPath, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, runPythonArgsAsync } from '../shared/index.js';
 
 // Python fallback script is not currently bundled; path is kept consistent with global assets.
 const PY_SCRIPT = globalPath('assets', 'python', 'procmem_scanner.py');

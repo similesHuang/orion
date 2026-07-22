@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { globalPath, workspacePath, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, workspacePath, runPythonArgsAsync } from '../shared/index.js';
 
 const DEFAULT_MODEL = workspacePath('.orion', 'temp', 'weights', 'icon_detect', 'model.pt');
 // Python fallback script is not currently bundled; path is kept consistent with global assets.

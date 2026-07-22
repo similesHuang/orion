@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { workspacePath } from '@orion/shared';
+import { workspacePath } from '../shared/index.js';
 
 const tempDir = workspacePath('.orion', 'temp');
 const reportsDir = path.join(tempDir, 'autonomous_reports');

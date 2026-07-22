@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { globalPath, runPythonArgsAsync } from '@orion/shared';
+import { globalPath, runPythonArgsAsync } from '../shared/index.js';
 
 // Python bridge script is not currently bundled; path is kept consistent with global assets.
 const BRIDGE = globalPath('assets', 'python', 'ljqctrl_bg_bridge.py');

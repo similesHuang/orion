@@ -2,7 +2,7 @@
  *  Ported from GenericAgent/memory/vision_api.template.py
  */
 import fs from 'fs';
-import { loadEnvFile, loadMykey } from '@orion/shared';
+import { loadEnvFile, loadMykey } from '../shared/index.js';
 
 const MODELSCOPE_API_BASE = 'https://api-inference.modelscope.cn';
 const MODELSCOPE_MODEL = 'Qwen/Qwen3-VL-235B-A22B-Instruct';

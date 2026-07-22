@@ -1,12 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { isPathContained } from '@orion/shared';
+import { fileURLToPath } from 'url';
+import { isPathContained } from '../../shared/index.js';
 
 const moduleDir = path.dirname(import.meta.url ? fileURLToPath(import.meta.url) : __filename);
 export const L4_DIR = path.resolve(moduleDir, '..', '..', '..', 'memory', 'L4_raw_sessions');
-
-import { fileURLToPath } from 'url';
 
 const rePrompt = /^=== Prompt ===(?: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?/gm;
 const reResponse = /^=== Response ===(?: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?/gm;

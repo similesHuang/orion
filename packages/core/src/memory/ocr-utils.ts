@@ -1,7 +1,7 @@
 /** Local OCR wrapper (rapidocr via Python fallback). */
 import fs from 'fs';
 import path from 'path';
-import { globalPath, runPythonCodeAsync } from '@orion/shared';
+import { globalPath, runPythonCodeAsync } from '../shared/index.js';
 
 // Python fallback script is not currently bundled; path is kept consistent with global assets.
 const PY_SCRIPT = globalPath('assets', 'python', 'ocr_utils.py');
