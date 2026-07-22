@@ -155,6 +155,22 @@ export async function uploadFile(file: File): Promise<{ path: string; name: stri
   return response.json() as Promise<{ path: string; name: string; size: number }>
 }
 
+// ---------------------------------------------------------------------------
+// Gateway process management
+// ---------------------------------------------------------------------------
+
+export async function startGateway(): Promise<void> {
+  await fetchJson('/api/gateway/start', { method: 'POST' })
+}
+
+export async function stopGateway(): Promise<void> {
+  await fetchJson('/api/gateway/stop', { method: 'POST' })
+}
+
+export async function gatewayStatus(): Promise<{ running: boolean; pid: number | null }> {
+  return fetchJson('/api/gateway/status')
+}
+
 /**
  * Fetch the current backend snapshot as a JSON blob (for file download).
  */

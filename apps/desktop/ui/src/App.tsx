@@ -76,6 +76,9 @@ import {
   toggleMaximizeWindow,
   closeWindow,
   getGitBranch,
+  startGateway,
+  stopGateway,
+  gatewayStatus,
 } from './api'
 import {
   createProject,
@@ -183,6 +186,8 @@ export function App(): ReactElement {
   const [maximized, setMaximized] = useState(false)
   const [cost, setCost] = useState<CostStats | null>(null)
   const [commands, setCommands] = useState<CommandSpec[]>([])
+  const [gatewayRunning, setGatewayRunning] = useState(false)
+  const [gatewayPid, setGatewayPid] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
 
   const sourceRef = useRef<AbortController | null>(null)
@@ -1017,6 +1022,27 @@ export function App(): ReactElement {
     void ping()
   }, [closeStream, ping])
 
+  const handleStartGateway = useCallback(async () => {
+    try {
+      await startGateway()
+      const status = await gatewayStatus()
+      setGatewayRunning(status.running)
+      setGatewayPid(status.pid)
+    } catch (error) {
+      addSystemMessage(`启动 gateway 失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [addSystemMessage])
+
+  const handleStopGateway = useCallback(async () => {
+    try {
+      await stopGateway()
+      setGatewayRunning(false)
+      setGatewayPid(null)
+    } catch (error) {
+      addSystemMessage(`停止 gateway 失败: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [addSystemMessage])
+
   const handleApproval = useCallback(
     async (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => {
       const ctx = approvalCtxRef.current.get(approvalId)
@@ -1236,7 +1262,7 @@ export function App(): ReactElement {
               <p className="settings-copy">查看 sidecar、agent 和 gateway 当前运行状态。</p>
             </div>
           </div>
-          {settings.diagnostics ? renderDiagnostics(settings.diagnostics) : (
+          {settings.diagnostics ? renderDiagnostics(settings.diagnostics, gatewayRunning, handleStartGateway, handleStopGateway) : (
             <p className="settings-copy">尚未获取到诊断信息。</p>
           )}
         </section>
@@ -1676,7 +1702,12 @@ export function App(): ReactElement {
   )
 }
 
-function renderDiagnostics(diagnostics: DiagnosticsPayload): ReactElement {
+function renderDiagnostics(
+  diagnostics: DiagnosticsPayload,
+  gatewayRunning: boolean,
+  onStartGateway: () => void,
+  onStopGateway: () => void,
+): ReactElement {
   const fileRows = [
     ['.env', diagnostics.files.envExists ? diagnostics.files.envPath : `${diagnostics.files.envPath} (不存在)`],
     ['.env.example', diagnostics.files.envExampleExists ? diagnostics.files.envExamplePath : `${diagnostics.files.envExamplePath} (不存在)`],
@@ -1720,11 +1751,23 @@ function renderDiagnostics(diagnostics: DiagnosticsPayload): ReactElement {
           <article className="gateway-status-card" key={gateway.id}>
             <div className="gateway-status-head">
               <h4>{gateway.label}</h4>
-              <span className={`gateway-state ${gateway.configured ? 'ok' : 'warn'}`}>{gateway.configured ? 'ready' : 'incomplete'}</span>
+              <Space size={4}>
+                <span className={`gateway-state ${gateway.configured ? 'ok' : 'warn'}`}>
+                  {gateway.configured ? 'ready' : 'incomplete'}
+                </span>
+                <Button
+                  size="small"
+                  type={gatewayRunning ? 'default' : 'primary'}
+                  onClick={gatewayRunning ? onStopGateway : onStartGateway}
+                >
+                  {gatewayRunning ? '停止' : '启动'}
+                </Button>
+              </Space>
             </div>
             <p>{gateway.requiredMissing.length ? `缺少 ${gateway.requiredMissing.join(', ')}` : '必填字段已齐全'}</p>
             {gateway.portKey ? <p>{gateway.portKey}: {gateway.portValue || '-'}</p> : <p>无本地 webhook 端口</p>}
             <p>允许用户: {gateway.allowedUsers.length ? gateway.allowedUsers.join(', ') : '未限制'}</p>
+            {gatewayRunning && gatewayPid !== null && <p className="gateway-pid">进程 PID: {gatewayPid}</p>}
           </article>
         ))}
       </div>

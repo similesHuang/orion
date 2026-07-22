@@ -23,6 +23,9 @@ import {
   handleSessionImport,
   handleUpload,
   handleChat,
+  handleGatewayStart,
+  handleGatewayStop,
+  handleGatewayStatus,
 } from './router.js'
 
 async function main(): Promise<void> {
@@ -130,6 +133,21 @@ async function main(): Promise<void> {
 
     if (url.pathname === '/chat' && req.method === 'GET') {
       handleChat(req, res, cors, activeRequests, url)
+      return
+    }
+
+    if (url.pathname === '/api/gateway/start' && req.method === 'POST') {
+      handleGatewayStart(res, cors)
+      return
+    }
+
+    if (url.pathname === '/api/gateway/stop' && req.method === 'POST') {
+      handleGatewayStop(res, cors)
+      return
+    }
+
+    if (url.pathname === '/api/gateway/status' && req.method === 'GET') {
+      handleGatewayStatus(res, cors)
       return
     }
 

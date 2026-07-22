@@ -2,6 +2,7 @@ import type http from 'node:http'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { AgentYield, buildDoneText, costTracker, GenericAgent, HELP_COMMANDS } from '@orion/core'
 import { sseEvent, json } from './sse.js'
 import {
@@ -289,6 +290,62 @@ export function handleSessionImport(req: http.IncomingMessage, res: http.ServerR
       json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
     }
   })()
+}
+
+// ---------------------------------------------------------------------------
+// Gateway process management
+// ---------------------------------------------------------------------------
+
+let gatewayProcess: ChildProcess | null = null
+
+export function handleGatewayStart(res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
+  if (gatewayProcess) {
+    json(res, 400, { error: 'Gateway is already running' }, cors)
+    return
+  }
+
+  try {
+    const child = spawn('pnpm', ['--filter', '@orion/gateway', 'start'], {
+      stdio: 'inherit',
+      shell: true,
+      cwd: PROJECT_ROOT,
+    })
+
+    gatewayProcess = child
+
+    child.on('exit', (code) => {
+      console.log(`[Desktop] gateway process exited with code ${code}`)
+      gatewayProcess = null
+    })
+
+    child.on('error', (err) => {
+      console.error(`[Desktop] gateway process error: ${err.message}`)
+      gatewayProcess = null
+    })
+
+    json(res, 200, { ok: true, pid: child.pid }, cors)
+  } catch (error) {
+    json(res, 500, { error: error instanceof Error ? error.message : String(error) }, cors)
+  }
+}
+
+export function handleGatewayStop(res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
+  if (!gatewayProcess) {
+    json(res, 400, { error: 'Gateway is not running' }, cors)
+    return
+  }
+
+  try {
+    gatewayProcess.kill()
+    gatewayProcess = null
+    json(res, 200, { ok: true }, cors)
+  } catch (error) {
+    json(res, 500, { error: error instanceof Error ? error.message : String(error) }, cors)
+  }
+}
+
+export function handleGatewayStatus(res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
+  json(res, 200, { running: gatewayProcess !== null, pid: gatewayProcess?.pid ?? null }, cors)
 }
 
 // ---------------------------------------------------------------------------
