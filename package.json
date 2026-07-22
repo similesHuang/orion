@@ -16,7 +16,7 @@
     "lint": "eslint packages apps",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "clean": "pnpm -r exec rm -rf dist",
-    "ultraplan:daemon": "tsx packages/core/src/agent/ultraplan-daemon.ts"
+    "ultraplan:daemon": "tsx packages/core/src/agent/ultraplan-daemon.ts --daemon"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
