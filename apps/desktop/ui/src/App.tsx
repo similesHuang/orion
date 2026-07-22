@@ -135,6 +135,9 @@ export function App(): ReactElement {
   const [, setGatewayPid] = useState<number | null>(null)
   const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<string>('model')
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    return (typeof localStorage !== 'undefined' ? localStorage.getItem('orion-theme') : null) as 'dark' | 'light' || 'dark'
+  })
 
   const sourceRef = useRef<AbortController | null>(null)
   const sseTimeoutRef = useRef<number | null>(null)
@@ -754,6 +757,11 @@ export function App(): ReactElement {
     setSettings({ open: true })
   }, [])
 
+  const handleThemeChange = useCallback((mode: 'dark' | 'light') => {
+    setThemeMode(mode)
+    try { localStorage.setItem('orion-theme', mode) } catch {}
+  }, [])
+
   const handleApproval = useCallback(
     async (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => {
       const ctx = approvalCtxRef.current.get(approvalId)
@@ -954,42 +962,58 @@ export function App(): ReactElement {
     )
   }
 
-  const orionTheme = {
-    algorithm: theme.darkAlgorithm,
-    token: {
-      colorBgBase: '#0f0f1a',
-      colorBgContainer: 'rgba(255,255,255,0.04)',
-      colorBgElevated: 'rgba(255,255,255,0.06)',
-      colorTextBase: 'rgba(255,255,255,0.85)',
-      colorTextSecondary: 'rgba(255,255,255,0.5)',
-      colorBorder: 'rgba(255,255,255,0.06)',
-      colorPrimary: '#4fd1c5',
-      colorPrimaryHover: '#6ee0d5',
-      colorPrimaryActive: '#3bb8ac',
-      colorLink: '#4fd1c5',
+  const orionTheme = useMemo(() => ({
+    algorithm: themeMode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+    token: themeMode === 'dark' ? {
+      colorBgBase: '#0d1117',
+      colorBgContainer: '#161b22',
+      colorBgElevated: '#161b22',
+      colorTextBase: '#e6edf3',
+      colorTextSecondary: '#8d96a0',
+      colorBorder: '#30363d',
+      colorPrimary: '#58a6ff',
+      colorPrimaryHover: '#79c0ff',
+      colorPrimaryActive: '#58a6ff',
+      colorLink: '#58a6ff',
       controlOutline: 'transparent',
+      colorError: '#f85149',
       borderRadius: 10,
-      fontFamily:
-        '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      fontFamilyCode: '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
+    } : {
+      colorBgBase: '#f5f0eb',
+      colorBgContainer: '#ffffff',
+      colorBgElevated: '#ffffff',
+      colorTextBase: 'rgba(0,0,0,0.85)',
+      colorTextSecondary: 'rgba(0,0,0,0.4)',
+      colorBorder: 'rgba(0,0,0,0.06)',
+      colorPrimary: '#0891b2',
+      colorPrimaryHover: '#0e7490',
+      colorPrimaryActive: '#0891b2',
+      colorLink: '#0891b2',
+      controlOutline: 'transparent',
+      colorError: '#dc2626',
+      borderRadius: 10,
+      fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
       fontFamilyCode: '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
     },
     components: {
       Button: {
-        colorPrimaryBg: 'rgba(79,209,197,0.15)',
-        colorPrimaryText: '#4fd1c5',
+        colorPrimaryBg: themeMode === 'dark' ? 'rgba(56,139,253,0.15)' : 'rgba(8,145,178,0.1)',
+        colorPrimaryText: themeMode === 'dark' ? '#58a6ff' : '#0891b2',
       },
       Input: {
         activeBorderColor: 'transparent',
         activeShadow: '0 0 0 0 transparent',
-        hoverBorderColor: 'rgba(255,255,255,0.08)',
+        hoverBorderColor: themeMode === 'dark' ? '#484f58' : 'rgba(0,0,0,0.12)',
       },
     },
-  }
+  }), [themeMode])
 
   return (
     <ConfigProvider theme={orionTheme}>
       <XProvider>
-        <Layout className="shell">
+        <Layout className={`shell theme-${themeMode}`}>
           <div className="ambient ambient-a" />
           <div className="ambient ambient-b" />
           <Layout className="chat-layout">
@@ -1100,7 +1124,7 @@ export function App(): ReactElement {
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 12px' }}>
               <Popover
-                content={<SettingsMenu onSelect={handleSettingsMenuSelect} gatewayConfigured={gatewayConfigured} />}
+                content={<SettingsMenu onSelect={handleSettingsMenuSelect} gatewayConfigured={gatewayConfigured} themeMode={themeMode} onThemeChange={handleThemeChange} />}
                 trigger="click"
                 placement="top"
                 overlayClassName="settings-popover"

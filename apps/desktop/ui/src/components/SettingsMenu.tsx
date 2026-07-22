@@ -1,9 +1,10 @@
 import { type ReactElement } from 'react'
-import { Typography } from 'antd'
 
 interface SettingsMenuProps {
   onSelect: (section: string) => void
   gatewayConfigured: boolean
+  themeMode: 'dark' | 'light'
+  onThemeChange: (mode: 'dark' | 'light') => void
 }
 
 const MENU_ITEMS = [
@@ -12,7 +13,7 @@ const MENU_ITEMS = [
   { key: 'diagnostics', icon: '📊', label: '运行诊断' },
 ]
 
-export function SettingsMenu({ onSelect, gatewayConfigured }: SettingsMenuProps): ReactElement {
+export function SettingsMenu({ onSelect, gatewayConfigured, themeMode, onThemeChange }: SettingsMenuProps): ReactElement {
   return (
     <div className="settings-menu">
       {MENU_ITEMS.map((item) => (
@@ -28,6 +29,25 @@ export function SettingsMenu({ onSelect, gatewayConfigured }: SettingsMenuProps)
           )}
         </div>
       ))}
+      <div className="settings-menu-divider" />
+      <div className="settings-menu-item" style={{ opacity: 0.6, cursor: 'default' }}>
+        <span className="settings-menu-icon">🎨</span>
+        <span className="settings-menu-label">切换皮肤</span>
+      </div>
+      <div style={{ display: 'flex', gap: 4, padding: '2px 10px 6px' }}>
+        <div
+          className={`settings-theme-option ${themeMode === 'dark' ? 'active' : ''}`}
+          onClick={() => onThemeChange('dark')}
+        >
+          🌙 暗夜
+        </div>
+        <div
+          className={`settings-theme-option ${themeMode === 'light' ? 'active' : ''}`}
+          onClick={() => onThemeChange('light')}
+        >
+          ☀️ 白昼
+        </div>
+      </div>
     </div>
   )
 }

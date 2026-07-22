@@ -1,30 +1,30 @@
-:root {
-  /* Deep blue-purple gradient base — a cosmic workbench. */
-  --desk: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
-  --surface: rgba(255,255,255,0.04);
-  --raised: rgba(255,255,255,0.06);
-  --raised-hi: rgba(255,255,255,0.10);
-  --ink: rgba(255,255,255,0.85);
-  --ink-dim: rgba(255,255,255,0.65);
-  --ink-mute: rgba(255,255,255,0.5);
-  --line: rgba(255,255,255,0.06);
-  --line-strong: rgba(255,255,255,0.12);
+:root,
+.theme-dark {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --raised: #1c2128;
+  --raised-hi: #21262d;
+  --ink: #e6edf3;
+  --ink-dim: #c9d1d9;
+  --ink-mute: #8d96a0;
+  --line: #30363d;
+  --line-strong: #484f58;
+  --elevated: #161b22;
+  --input-bg: #0d1117;
 
-  /* Agent presence — teal signature accent. */
-  --agent: #4fd1c5;
-  --agent-soft: rgba(79, 209, 197, 0.14);
-  --agent-glow: rgba(79, 209, 197, 0.35);
+  --agent: #58a6ff;
+  --agent-soft: rgba(56, 139, 253, 0.15);
+  --agent-glow: rgba(56, 139, 253, 0.35);
 
-  /* The user's own voice — indigo, matching the cosmic palette. */
-  --you: #818cf8;
+  --you: #6366f1;
   --you-soft: rgba(99, 102, 241, 0.15);
 
-  --ok: #6ee7a8;
-  --warn: #f2c14e;
-  --error: #ef4444;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
 
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.26);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.35);
 
   --r-lg: 14px;
   --r-md: 10px;
@@ -46,7 +46,7 @@
 
 html, body { height: 100%; margin: 0; overflow: hidden; }
 
-body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%); }
+body { background: var(--bg); }
 
 #app { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
 
@@ -108,7 +108,7 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   position: relative;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  background: var(--bg);
 }
 
 .chat-layout.ant-layout { flex-direction: row !important; }
@@ -122,9 +122,7 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   display: flex;
   flex-direction: column;
   padding: 12px 0 0;
-  background: rgba(255, 255, 255, 0.03) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--surface) !important;
   border-right: 1px solid var(--line);
 }
 
@@ -214,6 +212,7 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
   border-top: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.14);
 }
+.theme-light .sidebar-footer { background: rgba(0, 0, 0, 0.02); }
 
 .current-session-label { display: block; font-size: 11px; color: var(--ink-mute); margin-bottom: 3px; font-family: var(--mono); }
 .current-session-name { display: block; font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
@@ -826,47 +825,70 @@ body { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%
 
 /* ── Settings Modal ── */
 .settings-modal .ant-modal-content {
-  background: #1c1d21;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--elevated);
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 24px 80px rgba(0,0,0,0.5);
 }
 .settings-modal .ant-modal-header {
-  background: #1c1d21;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: var(--elevated);
+  border-bottom: 1px solid var(--line);
   border-radius: 12px 12px 0 0;
   padding: 16px 24px;
   margin: 0;
 }
 .settings-modal .ant-modal-body {
-  background: #1c1d21;
+  background: var(--elevated);
   padding: 16px 24px;
 }
 .settings-modal .ant-modal-footer {
-  background: #1c1d21;
-  border-top: 1px solid rgba(255,255,255,0.06);
+  background: var(--elevated);
+  border-top: 1px solid var(--line);
   padding: 12px 24px;
   margin: 0;
 }
 .settings-modal .ant-modal-close {
   top: 16px;
   right: 20px;
-  color: rgba(255,255,255,0.25);
+  color: var(--ink-mute);
 }
 .ant-modal-mask {
   background: rgba(0,0,0,0.55) !important;
 }
 .settings-ant-input {
-  background: #0d0e12 !important;
-  border-color: rgba(255,255,255,0.06) !important;
-  color: rgba(255,255,255,0.85) !important;
+  background: var(--input-bg) !important;
+  border-color: var(--line) !important;
+  color: var(--ink) !important;
 }
 .settings-ant-input:hover {
-  border-color: rgba(255,255,255,0.15) !important;
+  border-color: var(--line-strong) !important;
 }
 .settings-ant-input:focus {
-  border-color: #4fd1c5 !important;
-  box-shadow: 0 0 0 2px rgba(79,209,197,0.15) !important;
+  border-color: var(--agent) !important;
+  box-shadow: 0 0 0 2px var(--agent-soft) !important;
+}
+.settings-gateway-card {
+  background: var(--elevated) !important;
+  border: 1px solid var(--line) !important;
+  margin-bottom: 12px;
+}
+.settings-gateway-card .ant-card-head {
+  border-bottom: 1px solid var(--line);
+}
+.settings-diag-card {
+  background: var(--elevated) !important;
+  border: 1px solid var(--line) !important;
+}
+.settings-diag-card .ant-card-head {
+  border-bottom: 1px solid var(--line);
+}
+.settings-diag-card .ant-descriptions-item-label {
+  color: var(--ink-mute);
+  font-size: 12px;
+}
+.settings-diag-card .ant-descriptions-item-content {
+  color: var(--ink-dim);
+  font-size: 13px;
 }
 .settings-gateway-card {
   background: #1c1d21 !important;
@@ -1035,4 +1057,62 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   border-radius: 10px;
   padding: 6px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+
+.settings-menu-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 0;
+}
+.settings-theme-option {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--ink-mute);
+  transition: background 0.15s;
+}
+.settings-theme-option:hover {
+  background: var(--agent-soft);
+  color: var(--ink);
+}
+.settings-theme-option.active {
+  background: var(--agent-soft);
+  color: var(--agent);
+  font-weight: 600;
+}
+
+/* ── Light theme ── */
+.theme-light {
+  --bg: #f5f0eb;
+  --surface: rgba(255,255,255,0.7);
+  --raised: #ffffff;
+  --raised-hi: #f5f0eb;
+  --ink: rgba(0,0,0,0.85);
+  --ink-dim: rgba(0,0,0,0.65);
+  --ink-mute: rgba(0,0,0,0.4);
+  --line: rgba(0,0,0,0.06);
+  --line-strong: rgba(0,0,0,0.12);
+  --elevated: #ffffff;
+  --input-bg: #f0ebe5;
+  --agent: #0891b2;
+  --agent-soft: rgba(8,145,178,0.12);
+  --agent-glow: rgba(8,145,178,0.25);
+  --you: #6366f1;
+  --you-soft: rgba(99,102,241,0.08);
+  --ok: #059669;
+  --warn: #d97706;
+  --error: #dc2626;
+  --shadow: 0 18px 50px rgba(0,0,0,0.12);
+  --shadow-sm: 0 6px 18px rgba(0,0,0,0.08);
+}
+.theme-light .chat-sidebar {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.theme-light .ambient { display: none; }
+.theme-light .ant-modal-mask {
+  background: rgba(0,0,0,0.3) !important;
 }
