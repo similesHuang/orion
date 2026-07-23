@@ -136,7 +136,9 @@ export function App(): ReactElement {
   const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<string>('model')
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
-    return (typeof localStorage !== 'undefined' ? localStorage.getItem('orion-theme') : null) as 'dark' | 'light' || 'dark'
+    const saved = (typeof localStorage !== 'undefined' ? localStorage.getItem('orion-theme') : null) as 'dark' | 'light' || 'dark'
+    try { document.documentElement.className = saved === 'light' ? 'theme-light' : 'theme-dark' } catch {}
+    return saved
   })
 
   const sourceRef = useRef<AbortController | null>(null)
@@ -759,7 +761,10 @@ export function App(): ReactElement {
 
   const handleThemeChange = useCallback((mode: 'dark' | 'light') => {
     setThemeMode(mode)
-    try { localStorage.setItem('orion-theme', mode) } catch {}
+    try {
+      localStorage.setItem('orion-theme', mode)
+      document.documentElement.className = mode === 'dark' ? 'theme-dark' : 'theme-light'
+    } catch {}
   }, [])
 
   const handleApproval = useCallback(
