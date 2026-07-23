@@ -52,13 +52,7 @@ export function TaskFeed({ session, streamingTaskId, streamingTurnId, onApproval
   }, [session.tasks, session.messages])
 
   if (tasks.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-constellation" aria-hidden="true" />
-        <h2>交给我吧</h2>
-        <p>说说你想做什么。读写文件、跑命令、查资料都行，我会在本地一步步做给你看。</p>
-      </div>
-    )
+    return null
   }
 
   return (
