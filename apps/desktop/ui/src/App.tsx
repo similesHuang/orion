@@ -174,7 +174,7 @@ export function App(): ReactElement {
   )
 
   const projectsSorted = useMemo(
-    () => [...chatState.projects].sort((left, right) => right.updatedAt - left.updatedAt),
+    () => chatState.projects,
     [chatState.projects]
   )
 
@@ -182,7 +182,7 @@ export function App(): ReactElement {
     () =>
       chatState.sessions
         .filter((item) => !item.projectId)
-        .sort((left, right) => right.updatedAt - left.updatedAt),
+        .sort((left, right) => left.createdAt - right.createdAt),
     [chatState.sessions]
   )
 
@@ -201,7 +201,7 @@ export function App(): ReactElement {
     (projectId: string) =>
       chatState.sessions
         .filter((item) => item.projectId === projectId)
-        .sort((left, right) => right.updatedAt - left.updatedAt),
+        .sort((left, right) => left.createdAt - right.createdAt),
     [chatState.sessions]
   )
 
