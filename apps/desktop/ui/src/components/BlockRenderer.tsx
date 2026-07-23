@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { MarkdownBlock } from '../markdown'
-import { formatDuration } from '../utils'
 import type { ApprovalRequest, Block, TimelineStep } from '../types'
 
 type ApprovalHandler = (approvalId: string, decision: 'allow' | 'deny', remember: boolean) => void
@@ -11,52 +10,25 @@ const RISK_LABEL: Record<string, string> = {
   file_patch: '修改文件',
 }
 
-function approvalPreview(toolName: string, args: Record<string, unknown>): string {
-  const s = (k: string) => (typeof args[k] === 'string' ? (args[k] as string) : '')
-  if (toolName === 'code_run') return s('command') || s('cmd') || s('code')
-  return s('path') || s('file') || s('filename')
+const TOOL_ICON: Record<string, string> = {
+  file_read: '📄',
+  file_write: '✏️',
+  file_patch: '🔧',
+  code_run: '⚡',
+  web_navigate: '🌐',
+  web_scan: '🔍',
+  web_execute_js: '📜',
+  ask_user: '💬',
+  update_working_checkpoint: '📋',
+  start_long_term_update: '🧠',
 }
 
-function ApprovalBlockView({
-  approval,
-  onApproval,
-}: {
-  approval: ApprovalRequest
-  onApproval: ApprovalHandler
-}): ReactElement {
-  const label = RISK_LABEL[approval.toolName] || approval.toolName
-  const preview = approvalPreview(approval.toolName, approval.args)
-  const decided = approval.status !== 'pending'
-
-  return (
-    <div className={`approval approval--${approval.status}`}>
-      <div className="approval-head">
-        <span className="approval-icon" aria-hidden="true">⚿</span>
-        <span className="approval-title">
-          {approval.status === 'pending' && <>请求执行 <b>{label}</b></>}
-          {approval.status === 'allowed' && <>已批准 <b>{label}</b></>}
-          {approval.status === 'denied' && <>已拒绝 <b>{label}</b></>}
-        </span>
-      </div>
-      {preview && <pre className="approval-preview">{preview}</pre>}
-      {!decided && (
-        <div className="approval-actions">
-          <button type="button" className="approval-btn approval-btn--allow" onClick={() => onApproval(approval.approvalId, 'allow', false)}>
-            批准
-          </button>
-          <button type="button" className="approval-btn approval-btn--session" onClick={() => onApproval(approval.approvalId, 'allow', true)}>
-            本次会话都允许
-          </button>
-          <button type="button" className="approval-btn approval-btn--deny" onClick={() => onApproval(approval.approvalId, 'deny', false)}>
-            拒绝
-          </button>
-        </div>
-      )}
-    </div>
-  )
+const STATUS_TEXT: Record<TimelineStep['status'], string> = {
+  running: '进行中',
+  done: '完成',
+  error: '失败',
 }
 
-/** Human-facing label + one-line summary for a tool call, keyed on tool name. */
 function describeTool(step: TimelineStep): { label: string; detail: string } {
   const args = step.args || {}
   const pick = (...keys: string[]): string => {
@@ -68,72 +40,94 @@ function describeTool(step: TimelineStep): { label: string; detail: string } {
     return ''
   }
   switch (step.toolName) {
-    case 'file_read':
-      return { label: '读取文件', detail: pick('path', 'file', 'filename') }
-    case 'file_write':
-      return { label: '写入文件', detail: pick('path', 'file', 'filename') }
-    case 'file_patch':
-      return { label: '修改文件', detail: pick('path', 'file', 'filename') }
-    case 'code_run':
-      return { label: '执行命令', detail: pick('command', 'cmd', 'code') }
-    case 'web_navigate':
-      return { label: '打开网页', detail: pick('url', 'href') }
-    case 'web_scan':
-      return { label: '扫描网页', detail: pick('url', 'query', 'href') }
-    case 'web_execute_js':
-      return { label: '执行脚本', detail: pick('url', 'script') }
-    case 'ask_user':
-      return { label: '询问用户', detail: pick('question', 'prompt') }
-    case 'update_working_checkpoint':
-      return { label: '更新进度', detail: pick('summary', 'note') }
-    case 'start_long_term_update':
-      return { label: '更新长期记忆', detail: pick('summary', 'note') }
-    default:
-      return { label: step.toolName, detail: '' }
+    case 'file_read': return { label: '读取文件', detail: pick('path', 'file', 'filename') }
+    case 'file_write': return { label: '写入文件', detail: pick('path', 'file', 'filename') }
+    case 'file_patch': return { label: '修改文件', detail: pick('path', 'file', 'filename') }
+    case 'code_run': return { label: '执行命令', detail: pick('command', 'cmd', 'code') }
+    case 'web_navigate': return { label: '打开网页', detail: pick('url', 'href') }
+    case 'web_scan': return { label: '扫描网页', detail: pick('url', 'query', 'href') }
+    case 'web_execute_js': return { label: '执行脚本', detail: pick('url', 'script') }
+    case 'ask_user': return { label: '询问用户', detail: pick('question', 'prompt') }
+    case 'update_working_checkpoint': return { label: '更新进度', detail: pick('summary', 'note') }
+    case 'start_long_term_update': return { label: '更新长期记忆', detail: pick('summary', 'note') }
+    default: return { label: step.toolName, detail: '' }
   }
 }
 
-const STATUS_TEXT: Record<TimelineStep['status'], string> = {
-  running: '进行中',
-  done: '完成',
-  error: '失败',
+function ApprovalBlockView({ approval, onApproval }: { approval: ApprovalRequest; onApproval: ApprovalHandler }): ReactElement {
+  const label = RISK_LABEL[approval.toolName] || approval.toolName
+  const preview = (() => {
+    const args = approval.args
+    const s = (k: string) => (typeof args[k] === 'string' ? args[k] as string : '')
+    if (approval.toolName === 'code_run') return s('command') || s('cmd') || s('code')
+    return s('path') || s('file') || s('filename')
+  })()
+  const decided = approval.status !== 'pending'
+
+  return (
+    <div className={`tcard tcard--approval tcard--${approval.status}`}>
+      <div className="tcard-head">
+        <span className="tcard-icon">⚠️</span>
+        <span className="tcard-name">需要审批</span>
+        <code className="tcard-cmd">{label}</code>
+      </div>
+      {preview && <div className="tcard-preview"><code>{preview}</code></div>}
+      {!decided && (
+        <div className="tcard-actions">
+          <button type="button" className="tcard-btn tcard-btn--allow" onClick={() => onApproval(approval.approvalId, 'allow', false)}>
+            批准
+          </button>
+          <button type="button" className="tcard-btn tcard-btn--session" onClick={() => onApproval(approval.approvalId, 'allow', true)}>
+            本次会话都允许
+          </button>
+          <button type="button" className="tcard-btn tcard-btn--deny" onClick={() => onApproval(approval.approvalId, 'deny', false)}>
+            拒绝
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ToolBlockView({ step }: { step: TimelineStep }): ReactElement {
   const [open, setOpen] = useState(false)
   const { label, detail } = describeTool(step)
-  const hasRaw = Object.keys(step.args || {}).length > 0 || !!step.resultSummary
+  const isRunning = step.status === 'running'
+  const icon = TOOL_ICON[step.toolName] || '🔧'
 
   return (
-    <div className={`tool-card tool-card--${step.status}`}>
-      <button
-        type="button"
-        className="tool-card-head"
-        onClick={() => hasRaw && setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <span className={`tool-dot tool-dot--${step.status}`} aria-hidden="true" />
-        <span className="tool-label">{label}</span>
-        {detail && <span className="tool-detail" title={detail}>{detail}</span>}
-        <span className="tool-spacer" />
-        <span className={`tool-status tool-status--${step.status}`}>{STATUS_TEXT[step.status]}</span>
-        {step.status !== 'running' && (
-          <span className="tool-duration">{formatDuration(step.durationMs)}</span>
+    <div className={`tcard tcard--tool tcard--${step.status}`}>
+      <div className="tcard-head" onClick={() => !isRunning && setOpen((v) => !v)} style={{ cursor: isRunning ? 'default' : 'pointer' }}>
+        <span className="tcard-icon">{isRunning ? '⏳' : icon}</span>
+        <span className="tcard-name">{label}</span>
+        {detail && <code className="tcard-cmd">{detail}</code>}
+        <span className="tcard-spacer" />
+        {isRunning ? (
+          <span className="tcard-status tcard-status--live">进行中 <span className="tcard-dots"><span /><span /><span /></span></span>
+        ) : (
+          <>
+            <span className={`tcard-status tcard-status--${step.status}`}>{STATUS_TEXT[step.status]}</span>
+            {step.durationMs != null && <span className="tcard-duration">{step.durationMs >= 1000 ? `${(step.durationMs / 1000).toFixed(1)}s` : `${step.durationMs}ms`}</span>}
+            <span className={`tcard-chevron ${open ? 'open' : ''}`} aria-hidden="true">▾</span>
+          </>
         )}
-        {hasRaw && <span className={`tool-chevron ${open ? 'open' : ''}`} aria-hidden="true">›</span>}
-      </button>
-      {open && hasRaw && (
-        <div className="tool-card-body">
+      </div>
+      {open && !isRunning && (
+        <div className="tcard-body">
           {Object.keys(step.args || {}).length > 0 && (
-            <div className="tool-raw">
-              <span className="tool-raw-label">参数</span>
-              <pre>{JSON.stringify(step.args, null, 2)}</pre>
+            <div className="tcard-section">
+              <span className="tcard-section-label">参数</span>
+              <pre className="tcard-pre">{JSON.stringify(step.args, null, 2)}</pre>
             </div>
           )}
-          {step.resultSummary && step.status !== 'running' && (
-            <div className="tool-raw">
-              <span className="tool-raw-label">结果</span>
-              <MarkdownBlock text={step.resultSummary} />
+          {step.resultSummary && (
+            <div className="tcard-section">
+              <span className="tcard-section-label">结果</span>
+              {step.toolName === 'code_run' ? (
+                <pre className="tcard-pre tcard-pre--output">{step.resultSummary}</pre>
+              ) : (
+                <div className="tcard-md"><MarkdownBlock text={step.resultSummary} /></div>
+              )}
             </div>
           )}
         </div>
@@ -142,10 +136,6 @@ function ToolBlockView({ step }: { step: TimelineStep }): ReactElement {
   )
 }
 
-/**
- * Reasoning trace. Auto-collapses once the agent stops streaming into it, so a
- * finished reply stays clean but the thinking is one click away.
- */
 function ThoughtBlockView({ content, isStreaming }: { content: string; isStreaming?: boolean }): ReactElement {
   const [open, setOpen] = useState(true)
   useEffect(() => {
@@ -153,14 +143,14 @@ function ThoughtBlockView({ content, isStreaming }: { content: string; isStreami
   }, [isStreaming])
 
   return (
-    <div className={`reasoning ${open ? 'is-open' : ''}`}>
-      <button type="button" className="reasoning-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span className={`reasoning-pulse ${isStreaming ? 'is-live' : ''}`} aria-hidden="true" />
-        <span className="reasoning-title">{isStreaming ? '正在思考' : '思考过程'}</span>
-        <span className={`reasoning-chevron ${open ? 'open' : ''}`} aria-hidden="true">›</span>
+    <div className={`thought ${open ? 'thought--open' : ''}`}>
+      <button type="button" className="thought-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className={`thought-dot ${isStreaming ? 'thought-dot--live' : ''}`} aria-hidden="true" />
+        <span className="thought-label">{isStreaming ? '思考中' : '思考过程'}</span>
+        <span className={`thought-chevron ${open ? 'open' : ''}`} aria-hidden="true">▾</span>
       </button>
       {open && (
-        <div className="reasoning-body">
+        <div className="thought-body">
           <MarkdownBlock text={content} />
         </div>
       )}
@@ -170,24 +160,26 @@ function ThoughtBlockView({ content, isStreaming }: { content: string; isStreami
 
 function TerminalBlockView({ block }: { block: Extract<Block, { kind: 'terminal' }> }): ReactElement {
   return (
-    <div className="block-terminal">
-      <div className="block-terminal-header">
-        <code>{block.command}</code>
-        {block.exitCode !== undefined && <span className="terminal-exit">exit {block.exitCode}</span>}
+    <div className="tcard tcard--tool tcard--done">
+      <div className="tcard-head">
+        <span className="tcard-icon">💻</span>
+        <span className="tcard-name">终端</span>
+        <code className="tcard-cmd">{block.command}</code>
+        {block.exitCode !== undefined && <span className="tcard-duration">exit {block.exitCode}</span>}
       </div>
-      <pre className="block-terminal-body">
-        <code>{block.output}</code>
-      </pre>
+      <pre className="tcard-pre tcard-pre--output" style={{ margin: 0, borderTop: '1px solid var(--line)' }}>{block.output}</pre>
     </div>
   )
 }
 
 function DiffBlockView({ block }: { block: Extract<Block, { kind: 'diff' }> }): ReactElement {
   return (
-    <div className="block-diff">
-      <div className="block-diff-header">
-        <code>{block.path}</code>
-        <span className="diff-op">{block.op}</span>
+    <div className="tcard tcard--tool tcard--done">
+      <div className="tcard-head">
+        <span className="tcard-icon">📝</span>
+        <span className="tcard-name">修改文件</span>
+        <code className="tcard-cmd">{block.path}</code>
+        <span className={`tcard-status tcard-status--${block.op === 'delete' ? 'error' : 'done'}`}>{block.op}</span>
       </div>
     </div>
   )
@@ -216,11 +208,7 @@ export function BlockRenderer({
     case 'terminal':
       return <TerminalBlockView block={block} />
     case 'summary':
-      return (
-        <div className="block-summary">
-          <MarkdownBlock text={block.content} />
-        </div>
-      )
+      return <div className="block-summary"><MarkdownBlock text={block.content} /></div>
     case 'error':
       return (
         <div className="block-error">
