@@ -1061,25 +1061,6 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   background: var(--line);
   margin: 4px 0;
 }
-.settings-theme-option {
-  flex: 1;
-  padding: 4px 8px;
-  border-radius: 5px;
-  font-size: 11px;
-  text-align: center;
-  cursor: pointer;
-  color: var(--ink-mute);
-  transition: background 0.15s;
-}
-.settings-theme-option:hover {
-  background: var(--agent-soft);
-  color: var(--ink);
-}
-.settings-theme-option.active {
-  background: var(--agent-soft);
-  color: var(--agent);
-  font-weight: 600;
-}
 
 /* ── Light theme ── */
 .theme-light {

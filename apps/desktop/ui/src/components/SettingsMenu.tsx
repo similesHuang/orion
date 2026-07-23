@@ -1,4 +1,5 @@
 import { type ReactElement } from 'react'
+import { Switch } from 'antd'
 
 interface SettingsMenuProps {
   onSelect: (section: string) => void
@@ -14,6 +15,7 @@ const MENU_ITEMS = [
 ]
 
 export function SettingsMenu({ onSelect, gatewayConfigured, themeMode, onThemeChange }: SettingsMenuProps): ReactElement {
+  const isDark = themeMode === 'dark'
   return (
     <div className="settings-menu">
       {MENU_ITEMS.map((item) => (
@@ -30,23 +32,16 @@ export function SettingsMenu({ onSelect, gatewayConfigured, themeMode, onThemeCh
         </div>
       ))}
       <div className="settings-menu-divider" />
-      <div className="settings-menu-item" style={{ opacity: 0.6, cursor: 'default' }}>
-        <span className="settings-menu-icon">🎨</span>
-        <span className="settings-menu-label">切换皮肤</span>
-      </div>
-      <div style={{ display: 'flex', gap: 4, padding: '2px 10px 6px' }}>
-        <div
-          className={`settings-theme-option ${themeMode === 'dark' ? 'active' : ''}`}
-          onClick={() => onThemeChange('dark')}
-        >
-          🌙 暗夜
-        </div>
-        <div
-          className={`settings-theme-option ${themeMode === 'light' ? 'active' : ''}`}
-          onClick={() => onThemeChange('light')}
-        >
-          ☀️ 白昼
-        </div>
+      <div className="settings-menu-item" style={{ cursor: 'default' }}>
+        <span className="settings-menu-icon">🌙</span>
+        <span className="settings-menu-label">暗夜模式</span>
+        <Switch
+          size="small"
+          checked={isDark}
+          onChange={(checked) => onThemeChange(checked ? 'dark' : 'light')}
+          style={{ marginLeft: 'auto' }}
+        />
+        <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ink-mute)' }}>☀️</span>
       </div>
     </div>
   )
