@@ -915,12 +915,15 @@ export class AnthropicSession extends BaseSession {
     }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': betaParts.join(','),
-      'anthropic-dangerous-direct-browser-access': 'true',
       'user-agent': this.userAgent,
       'x-app': 'cli',
     };
+    const isAnthropic = this.apiBase.includes('anthropic.com')
+    if (isAnthropic) {
+      headers['anthropic-version'] = '2023-06-01'
+      headers['anthropic-beta'] = betaParts.join(',')
+      headers['anthropic-dangerous-direct-browser-access'] = 'true'
+    }
     if (this.apiKey.startsWith('sk-ant-')) headers['x-api-key'] = this.apiKey;
     else headers['authorization'] = `Bearer ${this.apiKey}`;
 
