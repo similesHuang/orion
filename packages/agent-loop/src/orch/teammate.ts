@@ -134,6 +134,16 @@ export class Teammate {
         this._status = 'waiting_approval';
         return 'continue';
 
+      case 'task_assignment': {
+        // 任务分配：注入到 AgentLoop 上下文
+        const taskId = msg.metadata?.taskId ?? 'unknown';
+        (this.loop.getMessages() as Message[]).push({
+          role: 'user',
+          content: `<task_assignment id="${taskId}">${msg.content}</task_assignment>`,
+        });
+        return 'continue';
+      }
+
       default:
         // 其他消息追加到 AgentLoop 上下文
         (this.loop.getMessages() as Message[]).push({
