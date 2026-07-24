@@ -72,7 +72,7 @@ describe('StateSerializer', () => {
     assert.equal(turn, 3);
   });
 
-  it('should save and load from file', () => {
+  it('should save and load from file', async () => {
     const llm = {
       modelId: 'mock',
       chat: async function* () {
@@ -81,8 +81,8 @@ describe('StateSerializer', () => {
     };
     const loop = new AgentLoop({ llm, systemPrompt: 'test' });
     const tmpPath = '/tmp/test-agent-state.json';
-    StateSerializer.saveToFile(loop, tmpPath);
-    const loaded = StateSerializer.loadFromFile(tmpPath);
+    await StateSerializer.saveToFile(loop, tmpPath);
+    const loaded = await StateSerializer.loadFromFile(tmpPath);
     assert.equal(loaded.version, '0.1.0');
     unlinkSync(tmpPath);
   });

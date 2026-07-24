@@ -1,6 +1,6 @@
 import type { Message } from './message.js';
 import { AgentLoop, type AgentLoopOptions } from './agent-loop.js';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFile, readFile } from 'fs/promises';
 
 export interface AgentState {
   version: string;
@@ -19,14 +19,13 @@ export class StateSerializer {
     };
   }
 
-  static saveToFile(loop: AgentLoop, path: string): void {
+  static async saveToFile(loop: AgentLoop, path: string): Promise<void> {
     const state = this.serialize(loop);
-    // 文件写入在 Node.js 环境中
-    writeFileSync(path, JSON.stringify(state, null, 2), 'utf-8');
+    await writeFile(path, JSON.stringify(state, null, 2), 'utf-8');
   }
 
-  static loadFromFile(path: string): AgentState {
-    const raw = readFileSync(path, 'utf-8');
+  static async loadFromFile(path: string): Promise<AgentState> {
+    const raw = await readFile(path, 'utf-8');
     return JSON.parse(raw) as AgentState;
   }
 
