@@ -1,0 +1,28 @@
+{
+  "name": "@orion/engine",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Orion Agent Engine SDK — platform-agnostic agent runtime",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "ws": "^8.21.0",
+    "langfuse": "^3.32.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": { "optional": true }
+  }
+}
