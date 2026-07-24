@@ -26,3 +26,5 @@ export type { MemoryStore, MemoryItem } from './runtime/memory-store.js';
 
 export { WindowManager, TruncateWindow, SlidingWindow, SummaryWindow } from './runtime/window-manager.js';
 export type { TruncateOptions, SlidingOptions, SummaryOptions } from './runtime/window-manager.js';
+export { SkillLoader } from './runtime/skill-loader.js';
+export type { SkillManifest, Skill } from './runtime/skill-loader.js';
