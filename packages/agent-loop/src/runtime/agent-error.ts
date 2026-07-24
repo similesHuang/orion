@@ -32,7 +32,7 @@ export class AgentError extends Error {
       return new AgentError(msg, 'context_overflow');
     }
     // Auth errors — fatal
-    if (lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('auth')) {
+    if (lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('authentication error') || lower.includes('authorization error') || /\bauth\b/i.test(lower)) {
       return new AgentError(msg, 'fatal');
     }
     // Default: retryable（网络错误等）
