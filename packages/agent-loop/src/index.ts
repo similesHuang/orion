@@ -1,3 +1,6 @@
+export { ToolRegistry } from './core/tool-registry.js';
+export type { ToolRegistration, ToolResult } from './core/tool-registry.js';
+
 export type {
   Message, ContentBlock, ToolResultBlock,
   AgentEvent, ToolDef, ToolCall, TokenCost,
