@@ -31,3 +31,21 @@ export { WindowManager, TruncateWindow, SlidingWindow, SummaryWindow } from './r
 export type { TruncateOptions, SlidingOptions, SummaryOptions } from './runtime/window-manager.js';
 export { SkillLoader } from './runtime/skill-loader.js';
 export type { SkillManifest, Skill } from './runtime/skill-loader.js';
+
+export { TaskStore } from './orch/task-store.js';
+export type { Task, TaskCreateOptions, TaskFilter } from './orch/task-store.js';
+
+export { MCPAdapter, buildMCPToolName } from './orch/mcp-adapter.js';
+export type { MCPClientConfig, MCPTransportType } from './orch/mcp-adapter.js';
+export { WorktreeManager } from './orch/worktree.js';
+export type { WorktreeInfo, CreateResult, RemoveResult } from './orch/worktree.js';
+
+export { SubAgentPool, createSubAgent } from './core/sub-agent.js';
+export type { SubAgentRequest, SubAgentResult } from './core/sub-agent.js';
+export { StateSerializer } from './core/state.js';
+export type { AgentState } from './core/state.js';
+
+export { CronScheduler } from './orch/cron-scheduler.js';
+export type { CronJob } from './orch/cron-scheduler.js';
+export { BackgroundTaskRunner } from './orch/background.js';
+export type { BackgroundTask, BackgroundNotification } from './orch/background.js';
