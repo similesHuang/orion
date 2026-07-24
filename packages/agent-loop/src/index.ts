@@ -1,3 +1,6 @@
+export { AgentLoop } from './core/agent-loop.js';
+export type { AgentLoopOptions } from './core/agent-loop.js';
+
 export { ToolRegistry } from './core/tool-registry.js';
 export type { ToolRegistration, ToolResult } from './core/tool-registry.js';
 
