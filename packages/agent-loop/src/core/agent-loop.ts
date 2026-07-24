@@ -57,7 +57,7 @@ export class AgentLoop {
     this.toolChoice = options.toolChoice;
     this.maxTurns = options.maxTurns ?? 40;
     this.maxTokens = options.maxTokens ?? 8000;
-    this.retryPolicy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
+    this.retryPolicy = (options.retryPolicy ?? DEFAULT_RETRY_POLICY).clone();
     this.windowManager = options.windowManager;
     this.memoryStore = options.memoryStore;
     this.skillLoader = options.skillLoader;
@@ -70,6 +70,11 @@ export class AgentLoop {
 
   getHookPipeline(): HookPipeline {
     return this.hookPipeline;
+  }
+
+  /** 暴露 LLMProvider，供 SubAgentPool 等子组件使用 */
+  getLLMProvider(): LLMProvider {
+    return this.llm;
   }
 
   getMessages(): readonly Message[] {
@@ -110,13 +115,16 @@ export class AgentLoop {
 
       // 窗口压缩
       if (this.windowManager) {
-        activeMessages = this.windowManager.compress(activeMessages);
+        activeMessages = await this.windowManager.compress(activeMessages);
       }
 
       // 记忆注入
       let memorySnippet = '';
       if (this.memoryStore) {
-        const memories = await this.memoryStore.retrieve(input);
+        const latestContext = this.messages.slice(-4)
+          .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+          .join('\n');
+        const memories = await this.memoryStore.retrieve(latestContext || input);
         if (memories.length > 0) {
           memorySnippet = '\nRelevant memories:\n' + memories.map(m => `- ${m.content}`).join('\n');
         }
@@ -145,7 +153,12 @@ export class AgentLoop {
       // ---- LLM 调用 ----
       let response: Awaited<ReturnType<typeof this.callLLM>>;
       try {
+        await this.hookPipeline.run('beforeLLM', { messages: activeMessages, turn: this.turn });
         response = await this.callLLM(activeMessages, tools);
+        await this.hookPipeline.run('afterLLM', {
+          response: { content: response.content, tool_calls: response.tool_calls ?? [] },
+          turn: this.turn,
+        });
       } catch (err) {
         const ae = AgentError.from(err);
         yield { kind: 'error', severity: ae.retryable ? 'warn' : 'fatal', message: ae.message };
@@ -170,7 +183,13 @@ export class AgentLoop {
       if (!response.tool_calls || response.tool_calls.length === 0) {
         this.messages.push({ role: 'assistant', content: response.content });
 
-        const totalCalls = this.messages.filter(m => m.role === 'assistant').length;
+        // 统计实际 tool_use 调用次数
+        let totalCalls = 0;
+        for (const m of this.messages) {
+          if (m.role === 'assistant' && Array.isArray(m.content)) {
+            totalCalls += m.content.filter(b => (b as { type?: string }).type === 'tool_use').length;
+          }
+        }
         await this.hookPipeline.run('onStop', { turn: this.turn, totalToolCalls: totalCalls, reason: 'no_tool_use' } as StopContext);
 
         this.running = false;
@@ -259,6 +278,7 @@ export class AgentLoop {
       // ---- afterTurn hook ----
       const stats = { toolCalls: response.tool_calls.length, errors: errorCount };
       this.userHooks.onTurnEnd?.(this.turn, stats);
+      await this.hookPipeline.run('afterTurn', turnCtx);
     }
 
     // max turns 到达
