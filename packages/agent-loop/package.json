@@ -1,0 +1,25 @@
+{
+  "name": "@orion/agent-loop",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A TypeScript Agent Loop SDK — multi-provider, tool registry, team orchestration, and more.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test tests/**/*.mjs",
+    "test:watch": "node --test --watch tests/**/*.mjs",
+    "clean": "rm -rf dist"
+  },
+  "files": ["dist"],
+  "keywords": ["agent", "llm", "ai", "orion", "agent-loop"],
+  "license": "MIT",
+  "dependencies": {},
+  "optionalDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/js-yaml": "^4.0.9"
+  }
+}
