@@ -4,6 +4,7 @@ import type { ToolRegistration } from '../core/tool-registry.js';
 export type HookPhase =
   | 'beforeTurn' | 'afterTurn'
   | 'beforeTool' | 'afterTool'
+  | 'beforeLLM' | 'afterLLM'
   | 'onError' | 'onStop';
 
 // ── 上下文类型 ──
@@ -35,12 +36,24 @@ export interface StopContext {
   reason: string;
 }
 
+export interface BeforeLLMContext {
+  messages: unknown[];
+  turn: number;
+}
+
+export interface AfterLLMContext {
+  response: { content: string; tool_calls: unknown[] };
+  turn: number;
+}
+
 export type HookContext =
   | BeforeToolContext
   | AfterToolContext
   | TurnContext
   | ErrorContext
-  | StopContext;
+  | StopContext
+  | BeforeLLMContext
+  | AfterLLMContext;
 
 // ── HookResult ──
 export type HookResult = { denied: true; reason: string } | null;

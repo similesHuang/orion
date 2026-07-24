@@ -25,11 +25,12 @@ export type {
 export { AgentError } from './runtime/agent-error.js';
 export type { ErrorSeverity } from './runtime/agent-error.js';
 export { RetryPolicy, withRetry, DEFAULT_RETRY_POLICY } from './runtime/retry-policy.js';
-export type { RetryPolicyOptions, ErrorMatcher } from './runtime/retry-policy.js';
+export type { RetryPolicyOptions, ErrorMatcher, FallbackDecision } from './runtime/retry-policy.js';
 export { HookPipeline } from './runtime/hook-pipeline.js';
 export type {
   HookPhase, HookHandler, HookResult, HookContext,
-  BeforeToolContext, AfterToolContext, TurnContext, ErrorContext, StopContext,
+  BeforeToolContext, AfterToolContext, BeforeLLMContext, AfterLLMContext,
+  TurnContext, ErrorContext, StopContext,
 } from './runtime/hook-pipeline.js';
 export { WindowManager, TruncateWindow, SlidingWindow, SummaryWindow } from './runtime/window-manager.js';
 export type { TruncateOptions, SlidingOptions, SummaryOptions } from './runtime/window-manager.js';
