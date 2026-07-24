@@ -4,8 +4,9 @@ import path from 'path';
 // ---------------------------------------------------------------------------
 // Core LLM client (stays in @orion/core for now)
 // ---------------------------------------------------------------------------
-import { createClient, loadSessionsFromEnv, NativeToolClient, costTracker } from '@orion/core';
-import type { BaseSession, Message } from '@orion/core';
+import { createClient, loadSessionsFromEnv, NativeToolClient } from '@orion/core';
+import { costTracker } from '@orion/core';
+import type { BaseSession, Message } from './types/index.js';
 
 // ---------------------------------------------------------------------------
 // Engine: agent loop
