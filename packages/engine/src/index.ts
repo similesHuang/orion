@@ -1,6 +1,28 @@
-// Orion Agent Engine SDK — exports will be added as modules are implemented
+// Orion Agent Engine SDK
+export {
+  OrionAgent,
+  OrionAgentOptions,
+  ToolApprovalDecision,
+  ToolApprovalFn,
+  SubAgentRequest,
+  SubAgentResult,
+} from './orion-agent.js';
+
 export { ToolRegistry, RegisteredTool, ToolHandler, MCPServerConfig } from './tools/registry.js';
 export { registerFileTools } from './tools/builtin/file.js';
 export { registerCodeTools } from './tools/builtin/code.js';
 export { registerWebTools } from './tools/builtin/web.js';
 export { registerUserTools } from './tools/builtin/user.js';
+
+export { OrionAgentHandler, HandlerParent, ToolDeniedError } from './handler.js';
+export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from './agent-loop.js';
+export type { AgentLoopOptions } from './agent-loop.js';
+
+export { AgentYieldConsumer, CliConsumer, dispatchYield, renderAgentYieldToText } from './stream/consumer.js';
+export { WindowManager, TruncateWindowManager, SlidingWindowManager } from './context/window-manager.js';
+export { RetryPolicy, DEFAULT_RETRY_POLICY, withRetry } from './resilience/retry.js';
+export { AgentError } from './resilience/errors.js';
+export { saveAgentState, restoreAgentState, serializeAgentState, deserializeAgentState } from './state/serialization.js';
+export { TelemetryHooks, TelemetrySpan, TelemetryTracer, NoopTelemetry, setTelemetry, getTelemetry, createSpanContext } from './telemetry/tracing.js';
+
+export type { AgentYield, AgentState, Message, BaseSession, TaskQueueLike, ToolDefinition, LLMResponse, LLMStreamDelta } from './types/index.js';
