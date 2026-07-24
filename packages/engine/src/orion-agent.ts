@@ -62,7 +62,7 @@ import { findProjectRoot, getGlobalMemory } from './shared/index.js';
 // ---------------------------------------------------------------------------
 // Engine: types
 // ---------------------------------------------------------------------------
-import type { AgentYield, AgentState, TaskQueueLike } from './types/index.js';
+import type { AgentYield, AgentState, TaskQueueLike, ToolDefinition } from './types/index.js';
 
 // ===========================================================================
 // Exported types
@@ -454,7 +454,10 @@ export class OrionAgent {
     this.handler = handler;
 
     // ---- Build tools schema from registry ----
-    const toolsSchema = this.toolRegistry.list();
+    let toolsSchema = this.toolRegistry.list();
+    if (this.bannedTools.length) {
+      toolsSchema = toolsSchema.filter((t: ToolDefinition) => !this.bannedTools.includes(t.function.name));
+    }
 
     // ---- Build AgentLoopOptions ----
     const loopOptions: AgentLoopOptions = {
@@ -560,14 +563,28 @@ export class OrionAgent {
   // =========================================================================
 
   async delegate(request: SubAgentRequest): Promise<SubAgentResult> {
+    // Snapshot parent usage before sub-agent runs so we can compute delta
+    const before = { ...costTracker.getTracker('main') };
+
     const sub = new OrionAgent({ cwd: this.cwd });
     sub.verbose = false;
     sub.peerHint = false;
     sub.bannedTools = ['ask_user', 'start_long_term_update'];
     const result = await sub.runOnce(request.prompt);
+
+    // Compute delta: tokens consumed by the sub-agent only
+    const after = costTracker.getTracker('main');
+    const delta = {
+      ...costTracker.emptyStats(),
+      input: after.input - before.input,
+      output: after.output - before.output,
+      cacheCreate: after.cacheCreate - before.cacheCreate,
+      cacheRead: after.cacheRead - before.cacheRead,
+    };
+
     return {
       output: result,
-      usage: costTracker.getTracker('main'),
+      usage: delta,
       toolCalls: [],
     };
   }
