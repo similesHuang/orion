@@ -73,9 +73,10 @@ export class WorktreeManager {
         timeout: 30000,
       });
 
-      // 删除分支
+      // 正常删除用 -d (safe), 强制删除用 -D (--force)
+      const deleteFlag = opts?.force ? '-D' : '-d';
       try {
-        execSync(`git branch -D "wt/${name}"`, { stdio: 'pipe', timeout: 10000 });
+        execSync(`git branch ${deleteFlag} "wt/${name}"`, { stdio: 'pipe', timeout: 10000 });
       } catch {
         // 分支可能不存在
       }
