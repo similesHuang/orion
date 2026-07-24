@@ -1,4 +1,8 @@
-// @orion/agent-loop — Agent Loop SDK
-// 各模块将在后续任务中逐步导出
+export type {
+  Message, ContentBlock, ToolResultBlock,
+  AgentEvent, ToolDef, ToolCall, TokenCost,
+} from './core/message.js';
 
-export {};
+export type {
+  LLMProvider, LLMEvent, LLMResponse, ChatOptions, ToolCall as LLMToolCall,
+} from './core/llm-provider.js';

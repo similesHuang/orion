@@ -11,15 +11,23 @@
     "test:watch": "node --test --watch tests/**/*.mjs",
     "clean": "rm -rf dist"
   },
-  "files": ["dist"],
-  "keywords": ["agent", "llm", "ai", "orion", "agent-loop"],
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "agent",
+    "llm",
+    "ai",
+    "orion",
+    "agent-loop"
+  ],
   "license": "MIT",
-  "dependencies": {},
   "optionalDependencies": {
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "@types/js-yaml": "^4.0.9"
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^26.1.1",
+    "typescript": "^5.5.0"
   }
 }
