@@ -24,7 +24,7 @@ function hasToolUse(msg: Message): boolean {
 
 // ── WindowManager Abstract Class ──
 export abstract class WindowManager {
-  abstract compress(messages: Message[]): Message[];
+  abstract compress(messages: Message[]): Message[] | Promise<Message[]>;
   abstract estimateTokenCount(messages: Message[]): number;
 }
 
@@ -93,6 +93,8 @@ export class SlidingWindow extends WindowManager {
 
   constructor(opts?: SlidingOptions) {
     super();
+    // Default 80k tokens (~ 320k chars using chars/4 heuristic) reserves ~20% headroom
+    // within a 100k-token context window for system prompts, tool definitions, and reply tokens.
     this.maxTokens = opts?.maxTokens ?? 80000;
     this.systemAlways = opts?.systemAlways ?? true;
   }
@@ -101,6 +103,9 @@ export class SlidingWindow extends WindowManager {
     const tokens = this.estimateTokenCount(messages);
     if (tokens <= this.maxTokens) return messages;
 
+    // NOTE: This is an O(n^2) scan — it re-estimates the token count from scratch
+    // for each candidate start index. For contexts with thousands of messages this
+    // could be optimized by a running-window or binary-search approach.
     // Keep system message, slide from the second message
     let startIdx = this.systemAlways ? 1 : 0;
     while (startIdx < messages.length) {
@@ -139,7 +144,7 @@ export class SummaryWindow extends WindowManager {
     this.summarizeFn = opts.summarizeFn;
   }
 
-  async compressAsync(messages: Message[]): Promise<Message[]> {
+  async compress(messages: Message[]): Promise<Message[]> {
     if (messages.length <= this.maxMessagesBeforeSummary) return messages;
 
     const summaryPoint = messages.length - this.keepRecentTurns * 2;
@@ -157,9 +162,9 @@ export class SummaryWindow extends WindowManager {
     ];
   }
 
-  compress(messages: Message[]): Message[] {
-    // Sync version just returns as-is; async compression requires explicit compressAsync call
-    return messages;
+  /** @deprecated Use compress() instead — logic is now inline. */
+  async compressAsync(messages: Message[]): Promise<Message[]> {
+    return this.compress(messages);
   }
 
   estimateTokenCount(messages: Message[]): number {
