@@ -2227,6 +2227,7 @@ export async function createSubAgent(
 ```typescript
 import type { Message } from './message.js';
 import { AgentLoop, type AgentLoopOptions } from './agent-loop.js';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
 
 export interface AgentState {
   version: string;
@@ -2248,13 +2249,11 @@ export class StateSerializer {
   static saveToFile(loop: AgentLoop, path: string): void {
     const state = this.serialize(loop);
     // 文件写入在 Node.js 环境中
-    const fs = require('fs');
-    fs.writeFileSync(path, JSON.stringify(state, null, 2), 'utf-8');
+    writeFileSync(path, JSON.stringify(state, null, 2), 'utf-8');
   }
 
   static loadFromFile(path: string): AgentState {
-    const fs = require('fs');
-    const raw = fs.readFileSync(path, 'utf-8');
+    const raw = readFileSync(path, 'utf-8');
     return JSON.parse(raw) as AgentState;
   }
 
@@ -2354,7 +2353,7 @@ describe('StateSerializer', () => {
     StateSerializer.saveToFile(loop, tmpPath);
     const loaded = StateSerializer.loadFromFile(tmpPath);
     assert.equal(loaded.version, '0.1.0');
-    require('fs').unlinkSync(tmpPath);
+    unlinkSync(tmpPath);
   });
 });
 ```
