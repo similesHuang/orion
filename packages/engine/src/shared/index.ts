@@ -62,17 +62,21 @@ export function smartFormat(data: unknown, maxStrLen = 100, omitStr = ' ... '): 
   return `${s.slice(0, Math.floor(maxStrLen / 2))}${omitStr}${s.slice(-Math.floor(maxStrLen / 2))}`;
 }
 
-function getProjectRoot(): string {
-  return findProjectRoot();
-}
-
+/**
+ * Read global memory files from the project's memory directory.
+ *
+ * NOTE: This function reads from the filesystem and assumes a specific
+ * project layout (memory/, assets/). It is desktop-specific and may be
+ * moved out of the engine in a future refactor.
+ */
 export function getGlobalMemory(): string {
   let prompt = '\n';
   try {
+    const root = findProjectRoot();
     const suffix = process.env.GA_LANG === 'en' ? '_en' : '';
-    const insight = fs.readFileSync(path.join(getProjectRoot(), 'memory', 'global_mem_insight.txt'), 'utf-8');
-    const structure = fs.readFileSync(path.join(getProjectRoot(), `assets/insight_fixed_structure${suffix}.txt`), 'utf-8');
-    prompt += `cwd = ${path.join(getProjectRoot(), 'temp')} (./)\n`;
+    const insight = fs.readFileSync(path.join(root, 'memory', 'global_mem_insight.txt'), 'utf-8');
+    const structure = fs.readFileSync(path.join(root, `assets/insight_fixed_structure${suffix}.txt`), 'utf-8');
+    prompt += `cwd = ${path.join(root, 'temp')} (./)\n`;
     prompt += '\n[Memory] (../memory)\n';
     prompt += structure + '\n../memory/global_mem_insight.txt:\n';
     prompt += insight + '\n';

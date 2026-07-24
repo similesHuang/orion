@@ -3,10 +3,6 @@ import type { TokenStats } from '../cost-tracker.js';
 
 export interface SubAgentRequest {
   prompt: string;
-  tools?: string[];
-  model?: string;
-  timeout?: number;
-  maxTurns?: number;
 }
 
 export interface SubAgentResult {

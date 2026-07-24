@@ -18,6 +18,7 @@
   "dependencies": {
     "@ant-design/x": "^2.8.0",
     "@orion/core": "workspace:*",
+    "@orion/engine": "workspace:*",
     "antd": "^6.5.0"
   },
   "devDependencies": {

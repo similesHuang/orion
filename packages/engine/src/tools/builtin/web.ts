@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { resolveAllowedPath, smartFormat, webExecuteJs, webNavigate, webScan } from '../../compat.js';
+import { resolveAllowedPath, smartFormat } from '../../shared/index.js';
 import { ToolRegistry } from '../registry.js';
 import { LLMResponse } from '../../types/index.js';
 import { StepOutcome } from '../../agent-loop.js';
+import type { WebAutomation } from '../../web/automation.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,9 +21,16 @@ function absPath(cwd: string, p: string): string {
 
 async function* do_web_scan(
   args: Record<string, unknown>,
+  webAutomation?: WebAutomation,
 ): AsyncGenerator<string, StepOutcome, unknown> {
+  if (!webAutomation) {
+    return new StepOutcome(
+      { status: 'error', error: 'Web automation is not available — no WebAutomation provided.' },
+      '\n'
+    );
+  }
   yield '[Action] Scanning web page...\n';
-  const result = await webScan({
+  const result = await webAutomation.scan({
     tabs_only: args.tabs_only === true,
     switch_tab_id: args.switch_tab_id as string | undefined,
     text_only: args.text_only === true,
@@ -58,14 +66,20 @@ async function* do_web_scan(
 
 async function* do_web_navigate(
   args: Record<string, unknown>,
+  webAutomation?: WebAutomation,
 ): AsyncGenerator<string, StepOutcome, unknown> {
+  if (!webAutomation) {
+    return new StepOutcome(
+      { status: 'error', error: 'Web automation is not available — no WebAutomation provided.' },
+      '\n'
+    );
+  }
   const url = String(args.url || '');
   if (!url) {
     return new StepOutcome({ status: 'error', error: 'No URL provided.' }, '\n');
   }
   yield `[Action] Navigating to: ${url}\n`;
-  const result = await webNavigate({
-    url,
+  const result = await webAutomation.navigate(url, {
     switch_tab_id: args.switch_tab_id as string | undefined,
     new_tab: args.new_tab === true,
   });
@@ -85,7 +99,14 @@ async function* do_web_execute_js(
   args: Record<string, unknown>,
   response: LLMResponse,
   cwd: string,
+  webAutomation?: WebAutomation,
 ): AsyncGenerator<string, StepOutcome, unknown> {
+  if (!webAutomation) {
+    return new StepOutcome(
+      { status: 'error', error: 'Web automation is not available — no WebAutomation provided.' },
+      '\n'
+    );
+  }
   let script = (args.script as string) || '';
   if (!script) {
     const codeBlock = response.content.match(/```(?:javascript|js)\n([\s\S]*?)\n```/);
@@ -99,8 +120,7 @@ async function* do_web_execute_js(
     script = fs.readFileSync(resolvedScriptPath, 'utf-8');
   }
   yield '[Action] Executing JS in browser...\n';
-  const result = await webExecuteJs({
-    script,
+  const result = await webAutomation.executeJs(script, {
     save_to_file: args.save_to_file as string | undefined,
     switch_tab_id: args.switch_tab_id as string | undefined,
     no_monitor: args.no_monitor === true,
@@ -126,7 +146,8 @@ async function* do_web_execute_js(
 // registerWebTools
 // ---------------------------------------------------------------------------
 
-export function registerWebTools(registry: ToolRegistry, cwd: string): void {
+export function registerWebTools(registry: ToolRegistry, webAutomation?: WebAutomation): void {
+  const cwd = process.cwd();
   registry.register({
     name: 'web_scan',
     description:
@@ -141,7 +162,7 @@ export function registerWebTools(registry: ToolRegistry, cwd: string): void {
       },
       required: [],
     },
-    handler: (args: Record<string, unknown>) => do_web_scan(args),
+    handler: (args: Record<string, unknown>) => do_web_scan(args, webAutomation),
   });
 
   registry.register({
@@ -156,7 +177,7 @@ export function registerWebTools(registry: ToolRegistry, cwd: string): void {
       },
       required: ['url'],
     },
-    handler: (args: Record<string, unknown>) => do_web_navigate(args),
+    handler: (args: Record<string, unknown>) => do_web_navigate(args, webAutomation),
   });
 
   registry.register({
@@ -174,6 +195,6 @@ export function registerWebTools(registry: ToolRegistry, cwd: string): void {
       required: [],
     },
     handler: (args: Record<string, unknown>, response?: LLMResponse) =>
-      do_web_execute_js(args, response!, cwd),
+      do_web_execute_js(args, response!, cwd, webAutomation),
   });
 }

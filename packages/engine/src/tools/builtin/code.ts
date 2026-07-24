@@ -1,9 +1,10 @@
 import path from 'path';
-import { codeRun, extractCodeBlock } from '../../compat.js';
+import { extractCodeBlock } from '../file-utils.js';
 import { runInlineSandbox } from '../../inline-sandbox.js';
 import { ToolRegistry } from '../registry.js';
 import { LLMResponse } from '../../types/index.js';
 import { StepOutcome } from '../../agent-loop.js';
+import type { CodeExecutor } from '../executor.js';
 
 // ---------------------------------------------------------------------------
 // do_code_run
@@ -14,6 +15,7 @@ async function* do_code_run(
   response: LLMResponse,
   cwd: string,
   stopSignal: number[],
+  executor?: CodeExecutor,
 ): AsyncGenerator<string, StepOutcome, unknown> {
   const codeType = (args.type as string) || 'python';
   let code: string | null = (args.code as string) || (args.script as string);
@@ -29,10 +31,6 @@ async function* do_code_run(
   const codeCwd = path.normalize(cwd);
 
   if (codeType === 'python' && args.inline_eval) {
-    // SECURITY: inline_eval is now executed in a separate child_process sandbox
-    // without access to the agent handler or parent context. Code can only return
-    // a value via the `_r` variable. This prevents LLM-generated code from
-    // accessing the filesystem, network, or environment of the main process.
     const result = await runInlineSandbox(code, timeout * 1000, cwd);
     if (result.error) {
       return new StepOutcome(`Error: ${result.error}`, '\n');
@@ -40,7 +38,14 @@ async function* do_code_run(
     return new StepOutcome(result.result, '\n');
   }
 
-  const result = yield* codeRun(code, codeType, timeout, codeWorkDir, codeCwd, stopSignal);
+  if (!executor) {
+    return new StepOutcome(
+      { status: 'error', msg: 'Code execution is not available — no CodeExecutor provided.' },
+      '\n'
+    );
+  }
+
+  const result = yield* executor.run(code, codeType, timeout, codeWorkDir, codeCwd, stopSignal);
   return new StepOutcome(result, '\n');
 }
 
@@ -52,6 +57,7 @@ export function registerCodeTools(
   registry: ToolRegistry,
   cwd: string,
   stopSignal: number[],
+  executor?: CodeExecutor,
 ): void {
   registry.register({
     name: 'code_run',
@@ -78,6 +84,6 @@ export function registerCodeTools(
       required: [],
     },
     handler: (args: Record<string, unknown>, response?: LLMResponse) =>
-      do_code_run(args, response!, cwd, stopSignal),
+      do_code_run(args, response!, cwd, stopSignal, executor),
   });
 }

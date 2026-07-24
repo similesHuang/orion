@@ -1,7 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import { getWorkspaceRoot, llmUsageHooks } from '@orion/core';
-
 export interface TokenStats {
   requests: number;
   input: number;
@@ -48,12 +44,6 @@ const lock = {
   run: <T>(fn: () => T): T => fn(),
 };
 
-const OUT_RE = /\[Output\]\s+tokens=(\d+)/;
-const CACHE_RE_NEW = /\[Cache\]\s+input=(\d+)\s+creation=(\d+)\s+read=(\d+)/;
-const CACHE_RE_OLD = /\[Cache\]\s+input=(\d+)\s+cached=(\d+)/;
-
-let installed = false;
-
 export function getTracker(threadName: string): TokenStats {
   return lock.run(() => {
     if (!trackers.has(threadName)) trackers.set(threadName, emptyStats());
@@ -73,8 +63,7 @@ export function recordUsage(usage: Record<string, number>, threadName: string): 
   const t = getTracker(threadName);
   if (!usage) return;
   t.requests += 1;
-  const apiMode = (usage.api_mode as unknown as string) || undefined;
-  if (apiMode === 'messages' || usage.cache_creation_input_tokens !== undefined || usage.cache_read_input_tokens !== undefined) {
+  if (usage.cache_creation_input_tokens !== undefined || usage.cache_read_input_tokens !== undefined) {
     const inp = usage.input_tokens ?? usage.input ?? 0;
     const cc = usage.cache_creation_input_tokens ?? 0;
     const cr = usage.cache_read_input_tokens ?? usage.cached_tokens ?? 0;
@@ -99,47 +88,6 @@ export function recordUsage(usage: Record<string, number>, threadName: string): 
   }
 }
 
-export function scanSubagentLogs(since = 0, root?: string): TokenStats {
-  const out = emptyStats(since > 0 ? since : Date.now());
-  // Simple glob: list temp dirs and check stdout.log
-  const base = root || getWorkspaceRoot();
-  const tempDir = path.join(base, '.orion', 'temp');
-  if (!fs.existsSync(tempDir)) return out;
-  for (const entry of fs.readdirSync(tempDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const p = path.join(tempDir, entry.name, 'stdout.log');
-    if (!fs.existsSync(p)) continue;
-    if (since && fs.statSync(p).mtimeMs < since) continue;
-    try {
-      const text = fs.readFileSync(p, 'utf-8');
-      for (const line of text.split('\n')) {
-        if (!line.startsWith('[Output]') && !line.startsWith('[Cache]')) continue;
-        const om = line.match(OUT_RE);
-        if (om) {
-          out.output += parseInt(om[1], 10);
-          out.requests += 1;
-          continue;
-        }
-        const nm = line.match(CACHE_RE_NEW);
-        if (nm) {
-          out.input += parseInt(nm[1], 10);
-          out.cacheCreate += parseInt(nm[2], 10);
-          out.cacheRead += parseInt(nm[3], 10);
-          continue;
-        }
-        const om2 = line.match(CACHE_RE_OLD);
-        if (om2) {
-          out.input += Math.max(0, parseInt(om2[1], 10) - parseInt(om2[2], 10));
-          out.cacheRead += parseInt(om2[2], 10);
-        }
-      }
-    } catch {
-      // ignore bad logs
-    }
-  }
-  return out;
-}
-
 export function formatStats(name: string, s: TokenStats): string {
   const side = totalInputSide(s);
   const total = totalTokens(s);
@@ -153,36 +101,7 @@ export function formatStats(name: string, s: TokenStats): string {
 
 export function formatCostReport(
   threadName = 'main',
-  opts: { includeSubagents?: boolean; since?: number; root?: string } = {}
 ): string {
-  const lines: string[] = [];
   const main = getTracker(threadName);
-  lines.push(formatStats(threadName, main));
-  if (opts.includeSubagents) {
-    const sub = scanSubagentLogs(opts.since || main.startedAt, opts.root);
-    if (sub.requests || sub.output || sub.input) {
-      lines.push(formatStats('subagents', sub));
-      const combined: TokenStats = {
-        requests: main.requests + sub.requests,
-        input: main.input + sub.input,
-        output: main.output + sub.output,
-        cacheCreate: main.cacheCreate + sub.cacheCreate,
-        cacheRead: main.cacheRead + sub.cacheRead,
-        lastInput: main.lastInput,
-        lastOutput: main.lastOutput,
-        startedAt: Math.min(main.startedAt, sub.startedAt),
-      };
-      lines.push(formatStats('total', combined));
-    }
-  }
-  return lines.join('\n');
-}
-
-export function install(agent?: { onUsage?: (fn: (usage: Record<string, number>) => void) => void }): void {
-  if (installed) return;
-  if (agent && typeof agent.onUsage === 'function') {
-    agent.onUsage((usage) => recordUsage(usage, 'main'));
-  }
-  llmUsageHooks.push((usage) => recordUsage(usage, 'main'));
-  installed = true;
+  return formatStats(threadName, main);
 }

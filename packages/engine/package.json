@@ -10,7 +10,6 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@orion/core": "workspace:*",
     "js-yaml": "^4.1.0",
     "ws": "^8.21.0",
     "langfuse": "^3.32.0"

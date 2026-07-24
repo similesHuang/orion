@@ -4,7 +4,7 @@ import { LLMResponse } from './types/index.js';
 import { BaseHandler, StepOutcome, isAsyncGenerator } from './agent-loop.js';
 import { ToolRegistry } from './tools/registry.js';
 import { findProjectRoot, smartFormat, getGlobalMemory } from './shared/index.js';
-import { fileRead, consumeFile } from './compat.js';
+import { fileRead, consumeFile } from './tools/file-utils.js';
 
 // ---------------------------------------------------------------------------
 // HandlerParent
@@ -175,8 +175,8 @@ export class OrionAgentHandler extends BaseHandler {
       }
     }
 
-    const codeBlockPattern = /```[a-zA-Z0-9_]*\n[\s\S]{50,}?```/;
-    const blocks = content.match(new RegExp(codeBlockPattern, 'g')) || [];
+    const codeBlockPattern = /```[a-zA-Z0-9_]*\n[\s\S]{50,}?```/g;
+    const blocks = content.match(codeBlockPattern) || [];
     if (blocks.length === 1) {
       const m = content.match(codeBlockPattern);
       if (m) {

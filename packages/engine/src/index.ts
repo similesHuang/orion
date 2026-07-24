@@ -6,6 +6,12 @@ export {
   ToolApprovalFn,
 } from './orion-agent.js';
 
+// Interfaces
+export type { LLMProvider, ChatOptions } from './llm/provider.js';
+export type { CodeExecutor, CodeExecutionResult } from './tools/executor.js';
+export type { WebAutomation, ScanOptions, ScanResult, NavigateOptions, NavigateResult, ExecuteOptions, ExecuteResult, TabInfo } from './web/automation.js';
+export type { ConfigProvider, LLMSessionConfig } from './config/provider.js';
+
 export { ToolRegistry, RegisteredTool, ToolHandler, MCPServerConfig } from './tools/registry.js';
 export { registerFileTools } from './tools/builtin/file.js';
 export { registerCodeTools } from './tools/builtin/code.js';

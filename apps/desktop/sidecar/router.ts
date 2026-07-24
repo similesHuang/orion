@@ -3,8 +3,11 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { AgentYield, buildDoneText, costTracker, OrionAgent, HELP_COMMANDS } from '@orion/core'
+import { OrionAgent, AgentYield, costTracker } from '@orion/engine'
 import { sseEvent, json } from './sse.js'
+import {
+  getCurrentIndex, switchSession, listSessions,
+} from './llm/provider.js'
 import {
   PROJECT_ROOT,
   readEnvConfig,
@@ -18,6 +21,31 @@ import {
   resolveWorkingDir,
   Dict,
 } from './config.js'
+
+// ---------------------------------------------------------------------------
+// Helpers (moved from @orion/core after deletion)
+// ---------------------------------------------------------------------------
+
+function cleanReply(text: string): string {
+  return text.replace(/\n{3,}/g, '\n\n').trim() || '...'
+}
+
+function extractFiles(text: string): string[] {
+  return [...(text || '').matchAll(/\[FILE:([^\]]+)\]/g)].map((m) => m[1])
+}
+
+function stripFiles(text: string): string {
+  return (text || '').replace(/\[FILE:[^\]]+\]/g, '').trim()
+}
+
+function buildDoneText(rawText: string): string {
+  const files = extractFiles(rawText).filter((p) => fs.existsSync(p))
+  let body = stripFiles(cleanReply(rawText))
+  if (files.length) {
+    body = (body ? body + '\n\n' : '') + files.map((p) => `生成文件: ${p}`).join('\n')
+  }
+  return body || '...'
+}
 import {
   agent,
   agentIssue,
@@ -184,11 +212,9 @@ export function handleSettingsPost(req: http.IncomingMessage, res: http.ServerRe
 
 export function handleLlms(res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
   try {
-    const current = getAgent()
-    const options = current
-      .listLlms()
-      .split('\n')
-      .map((line, idx) => ({ idx, label: line, current: idx === current.llmNo }))
+    const lines = listSessions().split('\n')
+    const options = lines
+      .map((line, idx) => ({ idx, label: line, current: idx === getCurrentIndex() }))
     json(res, 200, options, cors)
   } catch (error) {
     json(res, 503, { error: error instanceof Error ? error.message : String(error) }, cors)
@@ -217,16 +243,30 @@ export function handleCost(res: http.ServerResponse, cors: http.OutgoingHttpHead
   }
 }
 
+const HELP_COMMANDS: Array<[string, string]> = [
+  ['/help', '显示帮助'],
+  ['/status', '查看状态'],
+  ['/stop', '停止当前任务'],
+  ['/new', '开启新对话并清空当前上下文'],
+  ['/restore', '恢复上次对话历史'],
+  ['/continue', '列出可恢复会话'],
+  ['/continue [n]', '恢复第 n 个会话'],
+  ['/btw <q>', 'side question — 临时插问主 agent 进展，不打断主线'],
+  ['/review [scope]', 'in-session code review; 默认审当前 git diff'],
+  ['/llm', '查看当前模型列表'],
+  ['/llm [n]', '切换到第 n 个模型'],
+  ['/cost', '查看本次 token 消耗'],
+]
+
 export function handleCommands(res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
   json(res, 200, HELP_COMMANDS.map(([command, description]) => ({ command, description })), cors)
 }
 
 export function handleLlmSwitch(req: http.IncomingMessage, res: http.ServerResponse, cors: http.OutgoingHttpHeaders, url: URL): void {
   try {
-    const current = getAgent()
     const idx = Number.parseInt(url.pathname.split('/').pop() || '', 10)
-    current.nextLlm(idx)
-    json(res, 200, { ok: true, current: current.llmNo }, cors)
+    switchSession(idx)
+    json(res, 200, { ok: true, current: getCurrentIndex() }, cors)
   } catch (error) {
     json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
   }
@@ -234,9 +274,7 @@ export function handleLlmSwitch(req: http.IncomingMessage, res: http.ServerRespo
 
 export function handleReinject(req: http.IncomingMessage, res: http.ServerResponse, cors: http.OutgoingHttpHeaders): void {
   try {
-    const current = getAgent()
-    const backend = current.client.backend as unknown as Dict<unknown>
-    backend.lastTools = ''
+    // Reinject is a legacy no-op — the agent's LLM provider manages state directly.
     json(res, 200, { ok: true }, cors)
   } catch (error) {
     json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
@@ -275,7 +313,7 @@ export function handleSessionReset(res: http.ServerResponse, cors: http.Outgoing
   const snapshot = exportSnapshot(agent)
   stopActiveTasks(activeRequests)
   rebuildAgent({ ...buildEmptySnapshot(), llmNo: snapshot.llmNo })
-  json(res, 200, { ok: true, current: agent?.llmNo ?? 0 }, cors)
+  json(res, 200, { ok: true, current: getCurrentIndex() }, cors)
 }
 
 export function handleSessionImport(req: http.IncomingMessage, res: http.ServerResponse, cors: http.OutgoingHttpHeaders, activeRequests: ActiveRequestMap): void {
@@ -285,7 +323,7 @@ export function handleSessionImport(req: http.IncomingMessage, res: http.ServerR
       stopActiveTasks(activeRequests)
       if (payload) rebuildAgent(payload)
       else rebuildAgent()
-      json(res, 200, { ok: true, current: agent?.llmNo ?? 0 }, cors)
+      json(res, 200, { ok: true, current: getCurrentIndex() }, cors)
     } catch (error) {
       json(res, 400, { error: error instanceof Error ? error.message : String(error) }, cors)
     }
@@ -439,7 +477,7 @@ export function handleChat(req: http.IncomingMessage, res: http.ServerResponse, 
   }
 
   const originalSnapshot = exportSnapshot(current)
-  const requestAgent = restoreSnapshot(originalSnapshot, targetCwd)
+  const requestAgent = restoreSnapshot(originalSnapshot)
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -525,8 +563,8 @@ export function handleChat(req: http.IncomingMessage, res: http.ServerResponse, 
           fullText += y.content
           emit('text', JSON.stringify({ delta: y.content }))
           break
-        case 'thought':
-          emit('thought', JSON.stringify({ delta: y.content }))
+        case 'thinking':
+          emit('thinking', JSON.stringify({ delta: y.content }))
           break
         case 'tool_call':
           runningStepIds.set(y.id, y.toolName)

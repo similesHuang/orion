@@ -5,9 +5,8 @@ import {
   expandFileRefs,
   extractRobustContent,
   formatError,
-  resolveAllowedPath,
-  smartFormat,
-} from '../../compat.js';
+} from '../file-utils.js';
+import { resolveAllowedPath, smartFormat } from '../../shared/index.js';
 import { ToolRegistry } from '../registry.js';
 import { LLMResponse } from '../../types/index.js';
 import { StepOutcome } from '../../agent-loop.js';

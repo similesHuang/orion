@@ -4,5 +4,9 @@
     "outDir": "./src-tauri/dist/sidecar",
     "rootDir": "./sidecar"
   },
-  "include": ["sidecar/*.ts"]
+  "include": ["sidecar/**/*.ts"],
+  "references": [
+    { "path": "../../packages/engine" },
+    { "path": "../../packages/core" }
+  ]
 }

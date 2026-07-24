@@ -2,23 +2,20 @@ import fs from 'fs';
 import path from 'path';
 
 // ---------------------------------------------------------------------------
-// Core LLM client (stays in @orion/core for now)
-// ---------------------------------------------------------------------------
-import { createClient, loadSessionsFromEnv, NativeToolClient } from '@orion/core';
-import { costTracker } from '@orion/core';
-import type { BaseSession, Message } from './types/index.js';
-
-// ---------------------------------------------------------------------------
-// Engine: agent loop
+// Engine: agent loop & handler
 // ---------------------------------------------------------------------------
 import { agentRunnerLoop } from './agent-loop.js';
 import type { AgentLoopOptions } from './agent-loop.js';
-
-// ---------------------------------------------------------------------------
-// Engine: handler
-// ---------------------------------------------------------------------------
 import { OrionAgentHandler } from './handler.js';
 import type { HandlerParent } from './handler.js';
+
+// ---------------------------------------------------------------------------
+// Engine: interfaces (DI)
+// ---------------------------------------------------------------------------
+import type { LLMProvider } from './llm/provider.js';
+import type { CodeExecutor } from './tools/executor.js';
+import type { WebAutomation } from './web/automation.js';
+import type { ConfigProvider } from './config/provider.js';
 
 // ---------------------------------------------------------------------------
 // Engine: tools
@@ -56,9 +53,14 @@ import { saveAgentState, restoreAgentState } from './state/serialization.js';
 import { TelemetryHooks, getTelemetry } from './telemetry/tracing.js';
 
 // ---------------------------------------------------------------------------
+// Engine: cost tracker
+// ---------------------------------------------------------------------------
+import * as costTracker from './cost-tracker.js';
+
+// ---------------------------------------------------------------------------
 // Engine: shared
 // ---------------------------------------------------------------------------
-import { findProjectRoot, getGlobalMemory } from './shared/index.js';
+import { findProjectRoot } from './shared/index.js';
 
 // ---------------------------------------------------------------------------
 // Engine: types
@@ -70,7 +72,24 @@ import type { AgentYield, AgentState, TaskQueueLike, ToolDefinition } from './ty
 // ===========================================================================
 
 export interface OrionAgentOptions {
+  /** Required: LLM provider for chat completion. */
+  llmProvider: LLMProvider;
+
+  /** Optional: code execution backend. When absent, code_run returns "not available". */
+  codeExecutor?: CodeExecutor;
+
+  /** Optional: web automation backend. When absent, web_* returns "not available". */
+  webAutomation?: WebAutomation;
+
+  /** Optional: config provider. When absent, /cost etc. rely on manual cost-tracker calls. */
+  configProvider?: ConfigProvider;
+
+  /** Working directory for file operations (default: projectRoot/temp). */
   cwd?: string;
+
+  /** System prompt prepended to each agent turn. */
+  systemPrompt?: string;
+
   consumer?: AgentYieldConsumer;
   retryPolicy?: RetryPolicy;
   windowManager?: WindowManager;
@@ -113,96 +132,27 @@ interface RestoredState {
 }
 
 // ===========================================================================
-// Helpers (adapted from GenericAgent)
-// ===========================================================================
-
-function isZhLocale(): boolean {
-  const loc = (process.env.LANG || process.env.LC_ALL || '').toLowerCase();
-  return loc.includes('zh') || loc.includes('chinese');
-}
-
-const GA_LANG = process.env.GA_LANG || (isZhLocale() ? 'zh' : 'en');
-process.env.GA_LANG = GA_LANG;
-
-function projectRoot(): string {
-  return findProjectRoot();
-}
-
-function readUserName(): string | undefined {
-  try {
-    const text = fs.readFileSync(path.join(projectRoot(), 'memory', 'global_mem.txt'), 'utf-8');
-    return text.match(/用户姓名[：:]\s*(.+)/)?.[1]?.trim();
-  } catch {
-    return undefined;
-  }
-}
-
-function getSystemPrompt(cwd: string): string {
-  const suffix = GA_LANG === 'en' ? '_en' : '';
-  const p = path.join(projectRoot(), 'assets', `sys_prompt${suffix}.txt`);
-  let prompt: string;
-  try {
-    prompt = fs.readFileSync(p, 'utf-8');
-  } catch {
-    prompt = 'You are an AI assistant.';
-  }
-  const now = new Date();
-  const weekdays =
-    GA_LANG === 'en'
-      ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-      : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  prompt += `\nToday: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${weekdays[now.getDay()]}\n`;
-  prompt += getGlobalMemory();
-  return prompt;
-}
-
-function ensureMemoryFiles(): void {
-  const memDir = path.join(projectRoot(), 'memory');
-  if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
-  const globalMem = path.join(memDir, 'global_mem.txt');
-  if (!fs.existsSync(globalMem)) {
-    fs.writeFileSync(globalMem, '# [Global Memory - L2]\n', 'utf-8');
-  }
-  const insight = path.join(memDir, 'global_mem_insight.txt');
-  if (!fs.existsSync(insight)) {
-    const suffix = GA_LANG === 'en' ? '_en' : '';
-    const tpl = path.join(projectRoot(), 'assets', `global_mem_insight_template${suffix}.txt`);
-    if (fs.existsSync(tpl)) {
-      fs.writeFileSync(insight, fs.readFileSync(tpl, 'utf-8'), 'utf-8');
-    } else {
-      fs.writeFileSync(insight, '', 'utf-8');
-    }
-  }
-}
-
-function findConfigPath(): { path: string } | null {
-  const envPath = path.join(projectRoot(), '.env');
-  if (fs.existsSync(envPath)) return { path: envPath };
-  return null;
-}
-
-function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
-  const cfg = findConfigPath();
-  if (!cfg) throw new Error('No .env found. Please copy .env.example to .env and configure your LLM.');
-  const sessions = loadSessionsFromEnv(cfg.path);
-  if (keepHistory && sessions.length) {
-    sessions[0].history = keepHistory;
-  }
-  return sessions;
-}
-
-// ===========================================================================
 // OrionAgent
 // ===========================================================================
 
 export class OrionAgent {
-  // --- Public properties (backward compat with GenericAgent) ---
-  sessions: BaseSession[] = [];
-  client: NativeToolClient;
+  // --- Injected dependencies ---
+  /** The LLM provider used for chat completions. */
+  llmProvider: LLMProvider;
+
+  /** Optional code executor (code_run tool). */
+  codeExecutor?: CodeExecutor;
+
+  /** Optional web automation (web_* tools). */
+  webAutomation?: WebAutomation;
+
+  /** Optional config provider. */
+  configProvider?: ConfigProvider;
+
+  // --- Public properties ---
+  systemPrompt: string;
   cwd: string;
-  llmNo = 0;
   verbose = true;
-  peerHint = true;
   isRunning = false;
   stopSig = false;
   handler?: OrionAgentHandler;
@@ -226,11 +176,14 @@ export class OrionAgent {
   private _codeStopSignal: number[] = [];
   private _resumeState?: RestoredState;
 
-  constructor(options?: OrionAgentOptions) {
-    ensureMemoryFiles();
-    this.sessions = loadSessionsFresh();
-    this.cwd = options?.cwd ?? path.join(projectRoot(), 'temp');
-    this.client = createClient(this.sessions, this.llmNo, this.cwd);
+  constructor(options: OrionAgentOptions) {
+    this.llmProvider = options.llmProvider;
+    this.codeExecutor = options.codeExecutor;
+    this.webAutomation = options.webAutomation;
+    this.configProvider = options.configProvider;
+    this.systemPrompt = options.systemPrompt ?? 'You are an AI assistant.';
+
+    this.cwd = options?.cwd ?? findProjectRoot();
     if (!fs.existsSync(this.cwd)) {
       fs.mkdirSync(this.cwd, { recursive: true });
     }
@@ -245,32 +198,14 @@ export class OrionAgent {
 
     // Register builtin tools
     registerFileTools(this.toolRegistry, this.cwd);
-    registerCodeTools(this.toolRegistry, this.cwd, this._codeStopSignal);
-    registerWebTools(this.toolRegistry, this.cwd);
+    registerCodeTools(this.toolRegistry, this.cwd, this._codeStopSignal, this.codeExecutor);
+    registerWebTools(this.toolRegistry, this.webAutomation);
     registerUserTools(this.toolRegistry);
   }
 
-  // =========================================================================
-  // Public API (backward compat with GenericAgent)
-  // =========================================================================
-
+  /** Return the underlying LLM provider name + model for display. */
   get llmName(): string {
-    const b = this.client.backend;
-    return `${b.constructor.name}/${b.name}`;
-  }
-
-  nextLlm(n = -1): void {
-    this.sessions = loadSessionsFresh(this.client.backend.history);
-    this.llmNo = (n < 0 ? this.llmNo + 1 : n) % this.sessions.length;
-    this.client = createClient(this.sessions, this.llmNo, this.cwd);
-    console.log(`[LLM] switched to ${this.llmName}`);
-  }
-
-  listLlms(): string {
-    this.sessions = loadSessionsFresh(this.client.backend.history);
-    return this.sessions
-      .map((s, i) => `${i}: ${s.constructor.name}/${s.name}${i === this.llmNo ? ' *' : ''}`)
-      .join('\n');
+    return `${this.llmProvider.name}/${this.llmProvider.model}`;
   }
 
   abort(): void {
@@ -279,51 +214,6 @@ export class OrionAgent {
     this.stopSig = true;
     this._codeStopSignal.push(1);
     if (this.handler) this.handler.codeStopSignal.push(1);
-  }
-
-  handleSlashCmd(raw: string): string | null {
-    if (!raw.startsWith('/')) return raw;
-    const m = raw.trim().match(/^\/session\.(\w+)=(.*)$/);
-    if (m) {
-      const [, k, v] = m;
-      let val: unknown = v;
-      const vfile = path.join(projectRoot(), 'temp', v);
-      if (fs.existsSync(vfile)) val = fs.readFileSync(vfile, 'utf-8').trim();
-      try {
-        val = JSON.parse(val as string);
-      } catch {
-        // keep as string
-      }
-      (this.client.backend as unknown as Record<string, unknown>)[k] = val;
-      console.log(`session.${k} = ${JSON.stringify(val).slice(0, 500)}`);
-      return null;
-    }
-    if (raw.trim() === '/next') {
-      this.nextLlm();
-      return null;
-    }
-    if (raw.trim() === '/llms') {
-      console.log(this.listLlms());
-      return null;
-    }
-    if (raw.trim() === '/resume') {
-      return '帮我看看最近有哪些会话可以恢复。读model_responses/目录，按修改时间取最近10个文件，从每个文件里找最后一个<history>...</history>块，用一句话总结每个会话在聊什么，列表给我选。注意读文件后要把字面的\\n替换成真换行才能正确匹配。';
-    }
-    if (raw.trim() === '/cost') {
-      console.log(costTracker.formatCostReport('main', { includeSubagents: true }));
-      return null;
-    }
-    if (raw.trim() === '/help') {
-      console.log(`Commands:
-  /session.key=value   update backend session config
-  /next                switch to next LLM session
-  /llms                list available sessions
-  /resume              list recent sessions to resume
-  /cost                show token cost report
-  /help                show this help`);
-      return null;
-    }
-    return raw;
   }
 
   putTask(query: string, source = 'user', cwd?: string): TaskQueueLike {
@@ -388,23 +278,14 @@ export class OrionAgent {
 
     this.isRunning = true;
     this.stopSig = false;
+    this._codeStopSignal = [];
     const rquery = raw.replace(/\n/g, ' ').slice(0, 200);
     this.history.push(`[USER]: ${rquery}`);
 
-    const taskCwd = task.cwd ?? path.join(projectRoot(), 'temp');
+    const taskCwd = task.cwd ?? this.cwd;
 
     // ---- Build system prompt ----
-    let sysPrompt = getSystemPrompt(taskCwd);
-    const extra = (this.client.backend as unknown as Record<string, unknown>).extra_sys_prompt;
-    if (typeof extra === 'string') sysPrompt += extra;
-    if (this.peerHint) {
-      sysPrompt += '\n[Peer] 用户提及其他会话/后台任务状态时: temp/model_responses/ (只找近期修改的文件尾部)\n';
-    }
-
-    const userName = readUserName();
-    const userContent = userName
-      ? `[User Profile]\n- 姓名：${userName}\n\n用户当前消息：${raw}`
-      : raw;
+    let sysPrompt = this.systemPrompt;
 
     // ---- MCP initialization (lazy, before first agent run) ----
     if (this.mcpServers.length && !this._mcpReady) {
@@ -418,7 +299,6 @@ export class OrionAgent {
     // ---- Window management hint ----
     const usage = this.windowManager.getUsage();
     if (usage.remaining < usage.budget * 0.2) {
-      // Near limit — window manager will trim on next cycle
       if (this.verbose) {
         console.log(`[Window] Near token limit (${usage.used}/${usage.budget}), window manager will trim.`);
       }
@@ -468,7 +348,7 @@ export class OrionAgent {
         beforeTurn: (turn, _messages) => {
           this._telemetry.onTurnStart(turn, _messages);
         },
-        afterTurn: (_turn, response, toolResults) => {
+        afterTurn: (_turn, response, _toolResults) => {
           if (response.usage) {
             this.windowManager.onUsage(response.usage);
           }
@@ -478,13 +358,13 @@ export class OrionAgent {
 
     // ---- Run agent loop ----
     const gen = agentRunnerLoop(
-      this.client,
+      this.llmProvider,
       sysPrompt,
       raw,
       handler,
       toolsSchema,
       70,
-      userContent,
+      raw,
       loopOptions,
     );
 
@@ -495,9 +375,7 @@ export class OrionAgent {
         if (chunk.kind === 'text') {
           fullResp += chunk.content;
         }
-        // Dispatch to consumer for rendering
         dispatchYield(chunk, this.consumer);
-        // Push to task output queue (backward compat)
         task.output.push({ next: chunk, source: task.source });
       }
       if (fullResp.includes('</summary>')) {
@@ -540,17 +418,16 @@ export class OrionAgent {
 
   saveState(): AgentState {
     return saveAgentState(
-      this.client.backend.history,
+      [],
       this.handler?.working ?? {},
       this.history,
       this.handler?.currentTurn ?? 0,
     );
   }
 
-  static fromState(state: AgentState, options?: OrionAgentOptions): OrionAgent {
+  static fromState(state: AgentState, options: OrionAgentOptions): OrionAgent {
     const agent = new OrionAgent(options);
     const restored = restoreAgentState(state);
-    agent.client.backend.history = restored.messages;
     agent._resumeState = {
       working: restored.working,
       historyInfo: restored.historyInfo,
@@ -564,16 +441,19 @@ export class OrionAgent {
   // =========================================================================
 
   async delegate(request: SubAgentRequest): Promise<SubAgentResult> {
-    // Snapshot parent usage before sub-agent runs so we can compute delta
     const before = { ...costTracker.getTracker('main') };
 
-    const sub = new OrionAgent({ cwd: this.cwd });
+    const sub = new OrionAgent({
+      llmProvider: this.llmProvider,
+      codeExecutor: this.codeExecutor,
+      webAutomation: this.webAutomation,
+      configProvider: this.configProvider,
+      cwd: this.cwd,
+    });
     sub.verbose = false;
-    sub.peerHint = false;
     sub.bannedTools = ['ask_user', 'start_long_term_update'];
     const result = await sub.runOnce(request.prompt);
 
-    // Compute delta: tokens consumed by the sub-agent only
     const after = costTracker.getTracker('main');
     const delta = {
       ...costTracker.emptyStats(),
@@ -588,5 +468,25 @@ export class OrionAgent {
       usage: delta,
       toolCalls: [],
     };
+  }
+
+  // =========================================================================
+  // Built-in slash command handling
+  // =========================================================================
+
+  private handleSlashCmd(raw: string): string | null {
+    if (!raw.startsWith('/')) return raw;
+    if (raw.trim() === '/cost') {
+      console.log(costTracker.formatCostReport('main'));
+      return null;
+    }
+    if (raw.trim() === '/help') {
+      console.log(`Commands:
+  /cost   show token cost report
+  /help   show this help`);
+      return null;
+    }
+    // Unknown slash command — pass through so the agent can handle it
+    return raw;
   }
 }

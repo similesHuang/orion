@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /** Orion desktop chat sidecar API. */
 import http from 'node:http'
+import net from 'node:net'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { costTracker, ensureSingleInstance, loadMykey } from '@orion/core'
+import path from 'node:path'
+import { costTracker } from '@orion/engine'
 import { corsHeaders } from './sse.js'
 import { present, hydrateProcessEnv } from './config.js'
 import { rebuildAgent, agentIssue, ActiveRequestMap } from './agent-manager.js'
@@ -28,11 +31,40 @@ import {
   handleGatewayStatus,
 } from './router.js'
 
+/** Prevent multiple sidecar instances on the same port. */
+function ensureSingleInstance(port: number, label: string): void {
+  const srv = net.createServer()
+  srv.once('error', () => {
+    console.log(`[${label}] Another instance is already running, skipping...`)
+    process.exit(0)
+  })
+  srv.listen(port, '127.0.0.1')
+}
+
+/** Load mykey.json up the directory tree. */
+function loadMykey(scriptFile?: string): Record<string, unknown> {
+  let dir = scriptFile ? path.dirname(scriptFile) : process.cwd()
+  if (dir.endsWith('dist') || dir.includes(`${path.sep}dist${path.sep}`) ||
+      dir.endsWith('src') || dir.includes(`${path.sep}src${path.sep}`)) {
+    dir = path.resolve(dir, '..')
+  }
+  while (true) {
+    const p = path.join(dir, 'mykey.json')
+    if (fs.existsSync(p)) {
+      try { return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown> }
+      catch { return {} }
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return {}
+}
+
 async function main(): Promise<void> {
   if (process.env.TAURI_SIDECHAT !== '1') {
     ensureSingleInstance(19536, 'Desktop')
   }
-  costTracker.install()
   hydrateProcessEnv()
 
   const __filename = fileURLToPath(import.meta.url)

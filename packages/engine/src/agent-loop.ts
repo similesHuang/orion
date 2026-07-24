@@ -1,13 +1,8 @@
 import { AgentYield, LLMResponse, LLMStreamDelta, Message } from './types/index.js';
 import { withRetry, RetryPolicy, DEFAULT_RETRY_POLICY } from './resilience/retry.js';
 import { AgentError } from './resilience/errors.js';
-
-// ---------------------------------------------------------------------------
-// Type aliases
-// ---------------------------------------------------------------------------
-
-type ToolChoice = 'auto' | 'required' | { type: 'function'; function: { name: string } };
-type ResponseFormat = { type: 'json_object' } | { type: 'json_schema'; json_schema: { name: string; schema: Record<string, unknown> } };
+import type { LLMProvider } from './llm/provider.js';
+import type { ChatOptions } from './llm/provider.js';
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -28,9 +23,9 @@ export interface AgentLoopOptions {
   /** Maximum number of agent turns (default: 40). */
   maxTurns?: number;
   /** Tool choice mode passed to the LLM. */
-  toolChoice?: ToolChoice;
+  toolChoice?: unknown;
   /** Response format hint passed to the LLM. */
-  responseFormat?: ResponseFormat;
+  responseFormat?: unknown;
   /** Retry policy for tool dispatch failures. */
   retryPolicy?: RetryPolicy;
   /** Per-turn lifecycle hooks. */
@@ -203,14 +198,7 @@ export function isErrorOutcome(outcome: StepOutcome): boolean {
 // ---------------------------------------------------------------------------
 
 export async function* agentRunnerLoop(
-  client: {
-    chat(options: {
-      messages: Message[];
-      tools?: unknown[];
-      tool_choice?: ToolChoice;
-      response_format?: ResponseFormat;
-    }): AsyncGenerator<LLMStreamDelta, LLMResponse, unknown>;
-  },
+  client: LLMProvider,
   systemPrompt: string,
   userInput: string,
   handler: BaseHandler,
@@ -241,17 +229,12 @@ export async function* agentRunnerLoop(
     let stepSeq = 0;
 
     // Build chat options — pass tool_choice and response_format when provided.
-    const chatOpts: {
-      messages: Message[];
-      tools?: unknown[];
-      tool_choice?: ToolChoice;
-      response_format?: ResponseFormat;
-    } = { messages, tools: toolsSchema };
+    const chatOpts: ChatOptions = { messages, tools: toolsSchema as never };
     if (options?.toolChoice !== undefined) {
-      chatOpts.tool_choice = options.toolChoice;
+      (chatOpts as unknown as Record<string, unknown>).tool_choice = options.toolChoice;
     }
     if (options?.responseFormat !== undefined) {
-      chatOpts.response_format = options.responseFormat;
+      (chatOpts as unknown as Record<string, unknown>).response_format = options.responseFormat;
     }
 
     const responseGen = client.chat(chatOpts);
