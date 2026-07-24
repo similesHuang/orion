@@ -5,6 +5,12 @@ export type ErrorMatcher =
   | { type: 'nameMatch'; pattern: RegExp }
   | { type: 'messageMatch'; pattern: RegExp };
 
+export interface FallbackDecision {
+  needsFallback: boolean;
+  consecutive529: number;
+  currentModel: string;
+}
+
 export class RetryPolicy {
   readonly maxRetries: number;
   readonly baseDelayMs: number;
@@ -12,8 +18,8 @@ export class RetryPolicy {
   readonly jitter: number;
   readonly fallbackModel?: string;
   readonly retryableErrors: ErrorMatcher[];
-  consecutive529: number = 0;
-  currentModel: string;
+  private _consecutive529: number = 0;
+  private _currentModel: string;
 
   constructor(options?: Partial<RetryPolicyOptions>) {
     const opts = options ?? {};
@@ -23,8 +29,11 @@ export class RetryPolicy {
     this.jitter = opts.jitter ?? 0.25;
     this.fallbackModel = opts.fallbackModel;
     this.retryableErrors = opts.retryableErrors ?? [];
-    this.currentModel = opts.initialModel ?? 'default';
+    this._currentModel = opts.initialModel ?? 'default';
   }
+
+  get consecutive529(): number { return this._consecutive529; }
+  get currentModel(): string { return this._currentModel; }
 
   delayMs(attempt: number): number {
     const exponential = Math.min(this.baseDelayMs * (2 ** attempt), this.maxDelayMs);
@@ -32,18 +41,48 @@ export class RetryPolicy {
     return Math.max(1, Math.round(exponential + jitterAmount));
   }
 
-  shouldFallback(error: AgentError): boolean {
+  /** Pure: does not mutate. Returns a FallbackDecision to be applied via applyFallback(). */
+  shouldFallback(error: AgentError): FallbackDecision {
     if (error.statusCode === 529 && this.fallbackModel) {
-      this.consecutive529++;
-      if (this.consecutive529 >= 2) {
-        this.currentModel = this.fallbackModel;
-        this.consecutive529 = 0;
-        return true;
+      const newCount = this._consecutive529 + 1;
+      if (newCount >= 2) {
+        return {
+          needsFallback: true,
+          consecutive529: 0,
+          currentModel: this.fallbackModel,
+        };
       }
-    } else {
-      this.consecutive529 = 0;
+      return {
+        needsFallback: false,
+        consecutive529: newCount,
+        currentModel: this._currentModel,
+      };
     }
-    return false;
+    return {
+      needsFallback: false,
+      consecutive529: 0,
+      currentModel: this._currentModel,
+    };
+  }
+
+  /** Apply a FallbackDecision returned by shouldFallback(). */
+  applyFallback(decision: FallbackDecision): void {
+    this._consecutive529 = decision.consecutive529;
+    this._currentModel = decision.currentModel;
+  }
+
+  /** Create a fresh copy with the same configuration but independent state. */
+  clone(): RetryPolicy {
+    const cloned = new RetryPolicy({
+      maxRetries: this.maxRetries,
+      baseDelayMs: this.baseDelayMs,
+      maxDelayMs: this.maxDelayMs,
+      jitter: this.jitter,
+      fallbackModel: this.fallbackModel,
+      initialModel: this._currentModel,
+      retryableErrors: [...this.retryableErrors],
+    });
+    return cloned;
   }
 
   isRetryable(error: AgentError): boolean {
@@ -69,6 +108,10 @@ export interface RetryPolicyOptions {
   retryableErrors: ErrorMatcher[];
 }
 
+/**
+ * Shared default retry policy — mutable state is NOT shared-safe.
+ * Each AgentLoop or withRetry consumer MUST clone() before use.
+ */
 export const DEFAULT_RETRY_POLICY = new RetryPolicy();
 
 export async function withRetry<T>(
@@ -76,24 +119,29 @@ export async function withRetry<T>(
   policy: RetryPolicy = DEFAULT_RETRY_POLICY,
   onRetry?: (attempt: number, error: AgentError, delayMs: number) => void
 ): Promise<T> {
+  // Clone to isolate state (the policy may be the shared DEFAULT_RETRY_POLICY)
+  const activePolicy = policy.clone();
   let lastError: AgentError | null = null;
 
-  for (let attempt = 0; attempt <= policy.maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= activePolicy.maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       lastError = AgentError.from(err);
 
-      if (policy.shouldFallback(lastError)) {
+      const decision = activePolicy.shouldFallback(lastError);
+      activePolicy.applyFallback(decision);
+
+      if (decision.needsFallback) {
         // fallback model 切换后重试
         continue;
       }
 
-      if (!policy.isRetryable(lastError) || attempt === policy.maxRetries) {
+      if (!activePolicy.isRetryable(lastError) || attempt === activePolicy.maxRetries) {
         throw lastError;
       }
 
-      const delay = policy.delayMs(attempt);
+      const delay = activePolicy.delayMs(attempt);
       onRetry?.(attempt, lastError, delay);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
