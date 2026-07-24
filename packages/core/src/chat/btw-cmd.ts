@@ -1,6 +1,6 @@
 import type { Message } from '../agent/index.js';
 import type { BaseSession, LLMResponse, LLMStreamDelta } from '../types/index.js';
-import type { GenericAgentLike } from './index.js';
+import type { AgentLike } from './index.js';
 
 const WRAPPER_ZH = `<system-reminder>
 这是用户的临时插问 (side question)。主 agent 仍在后台运行，**不会被打断**。
@@ -60,7 +60,7 @@ async function snapshotHistory(backend: { history: Message[]; lock?: unknown }):
   return JSON.parse(JSON.stringify(backend.history)) as Message[];
 }
 
-async function askSide(agent: GenericAgentLike, question: string, deadline: number): Promise<string> {
+async function askSide(agent: AgentLike, question: string, deadline: number): Promise<string> {
   const backend = agent.client.backend as BaseSession;
   const userMsg: Message = {
     role: 'user',
@@ -108,7 +108,7 @@ async function askSide(agent: GenericAgentLike, question: string, deadline: numb
   return text;
 }
 
-export function handleBtwFrontend(agent: GenericAgentLike, query: string): string {
+export function handleBtwFrontend(agent: AgentLike, query: string): string {
   const question = stripCmd(query);
   if (!question || ['help', '?', '-h', '--help'].includes(question)) {
     return helpText();
@@ -117,7 +117,7 @@ export function handleBtwFrontend(agent: GenericAgentLike, query: string): strin
   return `(async /btw result pending — use handleBtwAsync instead)`;
 }
 
-export async function handleBtwAsync(agent: GenericAgentLike, query: string): Promise<string> {
+export async function handleBtwAsync(agent: AgentLike, query: string): Promise<string> {
   const question = stripCmd(query);
   if (!question || ['help', '?', '-h', '--help'].includes(question)) {
     return helpText();

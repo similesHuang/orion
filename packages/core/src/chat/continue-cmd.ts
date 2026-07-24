@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Message } from '../agent/index.js';
-import type { GenericAgentLike, SessionInfo } from './index.js';
+import type { AgentLike, SessionInfo } from './index.js';
 import { listSessions, snapshotCurrentLog } from './index.js';
 import {
   extractAssistantSummary,
@@ -41,7 +41,7 @@ function parseNativeHistory(pairsList: ReturnType<typeof parseModelResponsePairs
   return history;
 }
 
-function agentClients(agent: GenericAgentLike): Array<{ backend?: { history?: Message[] }; lastTools?: string }> {
+function agentClients(agent: AgentLike): Array<{ backend?: { history?: Message[] }; lastTools?: string }> {
   const clients: Array<{ backend?: { history?: Message[] }; lastTools?: string }> = [];
   if ('llmclients' in agent && Array.isArray((agent as unknown as { llmclients?: unknown[] }).llmclients)) {
     for (const c of (agent as unknown as { llmclients: Array<{ backend?: { history?: Message[] } }> }).llmclients) {
@@ -75,7 +75,7 @@ export function formatSessionList(sessions: SessionInfo[], limit = 20): string {
   return lines.join('\n');
 }
 
-export function restoreSession(agent: GenericAgentLike, sessionPath: string): [string, boolean] {
+export function restoreSession(agent: AgentLike, sessionPath: string): [string, boolean] {
   try {
     const content = fs.readFileSync(sessionPath, 'utf-8');
     const p = parseModelResponsePairs(content);
@@ -135,7 +135,7 @@ export function extractUiMessages(sessionPath: string): Array<{ role: string; co
   }
 }
 
-export function handleContinueFrontend(agent: GenericAgentLike, cmd: string): string {
+export function handleContinueFrontend(agent: AgentLike, cmd: string): string {
   const s = cmd.trim();
   const excludePid = process.pid;
   if (s === '/continue') {
@@ -153,7 +153,7 @@ export function handleContinueFrontend(agent: GenericAgentLike, cmd: string): st
   return msg;
 }
 
-export function resetConversation(agent: GenericAgentLike, message: string | null = '🆕 已开启新对话，当前上下文已清空'): string {
+export function resetConversation(agent: AgentLike, message: string | null = '🆕 已开启新对话，当前上下文已清空'): string {
   try {
     agent.abort();
   } catch {}
@@ -167,6 +167,6 @@ export function resetConversation(agent: GenericAgentLike, message: string | nul
   return message ?? '';
 }
 
-export function installContinue(_agentClass: new () => GenericAgentLike): void {
-  // No-op: TS GenericAgent already exposes history/abort via class interface.
+export function installContinue(_agentClass: new () => AgentLike): void {
+  // No-op: TS OrionAgent already exposes history/abort via class interface.
 }

@@ -4,8 +4,6 @@ export {
   OrionAgentOptions,
   ToolApprovalDecision,
   ToolApprovalFn,
-  SubAgentRequest,
-  SubAgentResult,
 } from './orion-agent.js';
 
 export { ToolRegistry, RegisteredTool, ToolHandler, MCPServerConfig } from './tools/registry.js';
@@ -26,3 +24,27 @@ export { saveAgentState, restoreAgentState, serializeAgentState, deserializeAgen
 export { TelemetryHooks, TelemetrySpan, TelemetryTracer, NoopTelemetry, setTelemetry, getTelemetry, createSpanContext } from './telemetry/tracing.js';
 
 export type { AgentYield, AgentState, Message, BaseSession, TaskQueueLike, ToolDefinition, LLMResponse, LLMStreamDelta } from './types/index.js';
+
+// MCP
+export { mcpToolToRegistration, registerMCPServerTools } from './tools/mcp/adapter.js';
+export { createMCPClient } from './tools/mcp/client.js';
+export type { MCPClient, MCPToolDef } from './tools/mcp/client.js';
+
+// Sub-agent
+export { delegate } from './subagent/delegation.js';
+export type { SubAgentRequest, SubAgentResult } from './subagent/delegation.js';
+
+// Inline sandbox
+export { runInlineSandbox } from './inline-sandbox.js';
+export type { SandboxResult } from './inline-sandbox.js';
+
+// Cost tracker
+export * as costTracker from './cost-tracker.js';
+
+// Types — add AgentLike and deprecated alias
+export type { AgentLike } from './types/index.js';
+/** @deprecated Use AgentLike instead */
+export type { AgentLike as GenericAgentLike } from './types/index.js';
+
+// SpanContext
+export type { SpanContext } from './types/index.js';

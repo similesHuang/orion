@@ -4,22 +4,43 @@ import readline from 'readline';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { findProjectRoot, sleep } from '../shared/index.js';
-import { agentRunnerLoop } from './agent-loop.js';
-import {
-  createClient,
-  loadSessionsFromEnv,
-  NativeToolClient,
-} from '../llm/index.js';
-import { AgentYield, BaseSession, Message, TaskQueueLike } from '../types/index.js';
-import * as costTracker from './cost-tracker.js';
-import { GenericAgentHandler, HandlerParent } from './handler-base.js';
+import { loadSessionsFromEnv } from '../llm/index.js';
+import type { AgentYield as EngineAgentYield, Message } from '../types/index.js';
+import type { AgentYield } from '@orion/engine';
+import * as localCostTracker from './cost-tracker.js';
 
-export type { BaseSession, Message, TaskQueueLike, GenericAgentLike, AgentYield } from '../types/index.js';
-export { GenericAgentHandler, HandlerParent, ToolDeniedError } from './handler-base.js';
-export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from './agent-loop.js';
+// =========================================================================
+// Backward-compat re-exports from @orion/engine
+// =========================================================================
+export { OrionAgent, OrionAgentOptions, ToolRegistry } from '@orion/engine';
+export { OrionAgentHandler, HandlerParent, ToolDeniedError } from '@orion/engine';
+export { agentRunnerLoop, BaseHandler, StepOutcome, agentLoopHooks } from '@orion/engine';
+export type { AgentState, AgentLike } from '@orion/engine';
+
+// Re-export shared types from core's types (not engine, to avoid type conflicts)
+export type { Message, AgentYield, TaskQueueLike } from '../types/index.js';
+
+// Deprecated aliases
+/** @deprecated Use OrionAgent instead */
+export { OrionAgent as GenericAgent } from '@orion/engine';
+/** @deprecated Use OrionAgentHandler instead */
+export { OrionAgentHandler as GenericAgentHandler } from '@orion/engine';
+
+export { costTracker } from '@orion/engine';
 export * as ultraplan from './ultraplan.js';
-export * as costTracker from './cost-tracker.js';
 
+// =========================================================================
+// Local type exports
+// =========================================================================
+export type ToolApprovalDecision = 'allow' | 'deny';
+export type ToolApprovalFn = (
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<ToolApprovalDecision>;
+
+// =========================================================================
+// CLI helpers (kept for main() entry point)
+// =========================================================================
 
 const __filename = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(__filename);
@@ -114,7 +135,7 @@ function findConfigPath(): { path: string } | null {
   return null;
 }
 
-function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
+function loadSessionsFresh(keepHistory?: Message[]): import('../types/index.js').BaseSession[] {
   const cfg = findConfigPath();
   if (!cfg) throw new Error('No .env found. Please copy .env.example to .env and configure your LLM.');
   const sessions = loadSessionsFromEnv(cfg.path);
@@ -124,264 +145,40 @@ function loadSessionsFresh(keepHistory?: Message[]): BaseSession[] {
   return sessions;
 }
 
-type TaskItem = {
-  query: string;
-  source: string;
-  cwd?: string;
-  output: { next?: AgentYield; done?: string; source: string }[];
-};
+// =========================================================================
+// renderAgentYieldToText — kept for CLI rendering
+// =========================================================================
 
-export type ToolApprovalDecision = 'allow' | 'deny';
-export type ToolApprovalFn = (
-  toolName: string,
-  args: Record<string, unknown>
-) => Promise<ToolApprovalDecision>;
-
-export interface GenericAgentOptions {
-  cwd?: string;
+export function renderAgentYieldToText(y: AgentYield): string {
+  const showThinking = process.env.ORION_CLI_THINKING === 'true';
+  const showToolResults = process.env.ORION_CLI_TOOL_RESULTS === 'true';
+  switch (y.kind) {
+    case 'text':
+      return y.content;
+    case 'thinking':
+      return showThinking ? `\n[Thought] ${y.content}\n` : '';
+    case 'tool_call':
+      return `\n🛠️  ${y.toolName}\n`;
+    case 'tool_result':
+      if (y.status === 'error') return '[error]\n';
+      if (showToolResults) {
+        const summary = typeof y.content === 'string' ? y.content : JSON.stringify(y.content);
+        return `\n[Result] ${summary.slice(0, 200)}\n`;
+      }
+      return '';
+    case 'error':
+      return `\n!!!Error: ${y.message}\n`;
+    case 'state':
+    case 'trace':
+      return '';
+    default:
+      return '';
+  }
 }
 
-export class GenericAgent {
-  sessions: BaseSession[] = [];
-  client: NativeToolClient;
-  cwd: string;
-  llmNo = 0;
-  verbose = true;
-  peerHint = true;
-  isRunning = false;
-  stopSig = false;
-  handler?: GenericAgentHandler;
-  taskDir?: string;
-  history: string[] = [];
-  taskQueue: TaskItem[] = [];
-  processing = false;
-  bannedTools: string[] = [];
-  /** Optional gate invoked before each tool runs. Undefined = allow everything. */
-  approveToolCall?: ToolApprovalFn;
-
-  constructor(options?: GenericAgentOptions) {
-    this.sessions = loadSessionsFresh();
-    this.cwd = options?.cwd ?? path.join(projectRoot, 'temp');
-    this.client = createClient(this.sessions, this.llmNo, this.cwd);
-    if (!fs.existsSync(this.cwd)) {
-      fs.mkdirSync(this.cwd, { recursive: true });
-    }
-  }
-
-  get llmName(): string {
-    const b = this.client.backend;
-    return `${b.constructor.name}/${b.name}`;
-  }
-
-  nextLlm(n = -1): void {
-    this.sessions = loadSessionsFresh(this.client.backend.history);
-    this.llmNo = (n < 0 ? this.llmNo + 1 : n) % this.sessions.length;
-    this.client = createClient(this.sessions, this.llmNo, this.cwd);
-    const name = this.client.backend.model.toLowerCase();
-    try {
-      loadToolSchema(name.includes('glm') || name.includes('minimax') || name.includes('kimi') ? '_cn' : '');
-    } catch {
-      // ignore schema reload errors
-    }
-    console.log(`[LLM] switched to ${this.llmName}`);
-  }
-
-  listLlms(): string {
-    this.sessions = loadSessionsFresh(this.client.backend.history);
-    return this.sessions
-      .map((s, i) => `${i}: ${s.constructor.name}/${s.name}${i === this.llmNo ? ' *' : ''}`)
-      .join('\n');
-  }
-
-  abort(): void {
-    if (!this.isRunning) return;
-    console.log('Abort current task...');
-    this.stopSig = true;
-    if (this.handler) this.handler.codeStopSignal.push(1);
-  }
-
-  handleSlashCmd(raw: string): string | null {
-    if (!raw.startsWith('/')) return raw;
-    const m = raw.trim().match(/^\/session\.(\w+)=(.*)$/);
-    if (m) {
-      const [, k, v] = m;
-      let val: unknown = v;
-      const vfile = path.join(projectRoot, 'temp', v);
-      if (fs.existsSync(vfile)) val = fs.readFileSync(vfile, 'utf-8').trim();
-      try {
-        val = JSON.parse(val as string);
-      } catch {
-        // keep as string
-      }
-      (this.client.backend as unknown as Record<string, unknown>)[k] = val;
-      console.log(`✅ session.${k} = ${JSON.stringify(val).slice(0, 500)}`);
-      return null;
-    }
-    if (raw.trim() === '/next') {
-      this.nextLlm();
-      return null;
-    }
-    if (raw.trim() === '/llms') {
-      console.log(this.listLlms());
-      return null;
-    }
-    if (raw.trim() === '/resume') {
-      return '帮我看看最近有哪些会话可以恢复。读model_responses/目录，按修改时间取最近10个文件，从每个文件里找最后一个<history>...</history>块，用一句话总结每个会话在聊什么，列表给我选。注意读文件后要把字面的\\n替换成真换行才能正确匹配。';
-    }
-    if (raw.trim() === '/cost') {
-      console.log(costTracker.formatCostReport('main', { includeSubagents: true }));
-      return null;
-    }
-    if (raw.trim() === '/help') {
-      console.log(`Commands:
-  /session.key=value   update backend session config
-  /next                switch to next LLM session
-  /llms                list available sessions
-  /resume              list recent sessions to resume
-  /cost                show token cost report
-  /help                show this help`);
-      return null;
-    }
-    return raw;
-  }
-
-  putTask(query: string, source = 'user', cwd?: string): TaskQueueLike {
-    const item: TaskItem = { query, source, cwd, output: [] };
-    const pending: Array<(value: { done?: string; next?: AgentYield; source?: string } | null) => void> = [];
-    const resolveOne = () => {
-      while (pending.length && item.output.length) {
-        const resolve = pending.shift()!;
-        resolve(item.output.shift() || null);
-      }
-    };
-    const origPush = item.output.push.bind(item.output);
-    item.output.push = (...args) => {
-      const r = origPush(...args);
-      resolveOne();
-      return r;
-    };
-    this.taskQueue.push(item);
-    if (!this.processing) void this.processQueue();
-    return {
-      get: async (block?: boolean, timeout?: number) => {
-        if (item.output.length) return item.output.shift() || null;
-        if (block === false) return null;
-        return new Promise<{ done?: string; next?: AgentYield; source?: string } | null>((resolve) => {
-          pending.push(resolve);
-          if (timeout !== undefined) {
-            setTimeout(() => {
-              const idx = pending.indexOf(resolve);
-              if (idx >= 0) {
-                pending.splice(idx, 1);
-                resolve(null);
-              }
-            }, timeout * 1000);
-          }
-        });
-      },
-    };
-  }
-
-  async processQueue(): Promise<void> {
-    if (this.processing) return;
-    this.processing = true;
-    try {
-      while (this.taskQueue.length) {
-        const task = this.taskQueue.shift()!;
-        try {
-          await this.runTask(task);
-        } catch (e) {
-          const err = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-          console.error(`[TaskQueue] runTask failed: ${err}`);
-        }
-      }
-    } finally {
-      this.processing = false;
-    }
-  }
-
-  async runTask(task: TaskItem): Promise<void> {
-    const raw = this.handleSlashCmd(task.query);
-    if (raw === null) return;
-    this.isRunning = true;
-    this.stopSig = false;
-    const rquery = raw.replace(/\n/g, ' ').slice(0, 200);
-    this.history.push(`[USER]: ${rquery}`);
-
-    const taskCwd = task.cwd ?? path.join(projectRoot, 'temp');
-    let sysPrompt = getSystemPrompt(taskCwd);
-    const extra = (this.client.backend as unknown as Record<string, unknown>).extra_sys_prompt;
-    if (typeof extra === 'string') sysPrompt += extra;
-    if (this.peerHint) sysPrompt += '\n[Peer] 用户提及其他会话/后台任务状态时: temp/model_responses/ (只找近期修改的文件尾部)\n';
-
-    const userName = readUserName();
-    const userContent = userName ? `[User Profile]\n- 姓名：${userName}\n\n用户当前消息：${raw}` : raw;
-
-    const parent: HandlerParent = {
-      taskDir: this.taskDir,
-      verbose: this.verbose,
-      approveToolCall: this.approveToolCall,
-    };
-    const handler = new GenericAgentHandler(parent, this.history, taskCwd);
-    if (this.handler?.working.key_info) {
-      const ki = String(this.handler.working.key_info).replace(/\n\[SYSTEM\] 此为.*?工作记忆[。\n]*/g, '');
-      const ps = (Number(this.handler.working.passed_sessions) || 0) + 1;
-      handler.working.passed_sessions = ps;
-      handler.working.key_info = ki + `\n[SYSTEM] 此为 ${ps} 个对话前设置的key_info，若已在新任务，先更新或清除工作记忆。\n`;
-    }
-    this.handler = handler;
-
-    const toolsSchema = loadToolSchema('', this.bannedTools);
-    const gen = agentRunnerLoop(
-      this.client,
-      sysPrompt,
-      raw,
-      handler,
-      toolsSchema,
-      70,
-      userContent
-    );
-
-    let fullResp = '';
-    try {
-      for await (const chunk of gen) {
-        if (this.stopSig) break;
-        if (chunk.kind === 'text') {
-          fullResp += chunk.content;
-        }
-        task.output.push({ next: chunk, source: task.source });
-      }
-      if (fullResp.includes('</summary>')) fullResp = fullResp.replace(/<\/summary>/g, '</summary>\n\n');
-      task.output.push({ done: fullResp, source: task.source });
-      this.history = handler.historyInfo;
-    } catch (e) {
-      const err = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      console.error(`Backend Error: ${err}`);
-      const doneText = fullResp + (fullResp ? '\n\n' : '') + `\`\`\`\n${err}\n\`\`\``;
-      task.output.push({ done: doneText, source: task.source });
-      task.output.push({ next: { kind: 'error', message: err }, source: task.source });
-    } finally {
-      this.isRunning = false;
-      this.stopSig = false;
-      if (this.handler) this.handler.codeStopSignal.push(1);
-    }
-  }
-
-  async runOnce(input: string): Promise<string> {
-    const dq = this.putTask(input, 'cli');
-    return new Promise((resolve) => {
-      const check = async () => {
-        const item = await dq.get(true, 0.1);
-        if (item?.done) {
-          resolve(item.done || '');
-          return;
-        }
-        setTimeout(check, 100);
-      };
-      check();
-    });
-  }
-}
+// =========================================================================
+// main() — CLI entry point
+// =========================================================================
 
 async function readTaskInput(taskDir: string): Promise<string> {
   const infile = path.join(taskDir, 'input.txt');
@@ -404,8 +201,11 @@ function consumeFile(dir: string, name: string): string | null {
 }
 
 export async function main(): Promise<void> {
+  // Dynamic import to avoid circular dependency at module load time
+  const { OrionAgent } = await import('@orion/engine');
+
   ensureMemoryFiles();
-  costTracker.install();
+  localCostTracker.install();
   const args = process.argv.slice(2);
   const flags = {
     task: getFlag(args, '--task'),
@@ -443,7 +243,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const agent = new GenericAgent();
+  const agent = new OrionAgent();
   agent.verbose = flags.verbose;
   agent.nextLlm(flags.llmNo);
   if (flags.noUserTools) {
@@ -607,28 +407,4 @@ function getFlag(args: string[], key: string): string | undefined {
   const idx = args.indexOf(key);
   if (idx >= 0 && idx + 1 < args.length) return args[idx + 1];
   return undefined;
-}
-
-export function renderAgentYieldToText(y: AgentYield): string {
-  const showThinking = process.env.ORION_CLI_THINKING === 'true';
-  const showToolResults = process.env.ORION_CLI_TOOL_RESULTS === 'true';
-  switch (y.kind) {
-    case 'text':
-      return y.content;
-    case 'thought':
-      return showThinking ? `\n[Thought] ${y.content}\n` : '';
-    case 'tool_call':
-      return `\n🛠️  ${y.toolName}\n`;
-    case 'tool_result':
-      if (y.status === 'error') return '[error]\n';
-      if (showToolResults) {
-        const summary = typeof y.content === 'string' ? y.content : JSON.stringify(y.content);
-        return `\n[Result] ${summary.slice(0, 200)}\n`;
-      }
-      return '';
-    case 'error':
-      return `\n!!!Error: ${y.message}\n`;
-    default:
-      return '';
-  }
 }

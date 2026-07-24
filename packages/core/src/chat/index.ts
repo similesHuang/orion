@@ -2,7 +2,7 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { findProjectRoot } from '../shared/index.js';
-import type { AgentYield, GenericAgentLike } from '../agent/index.js';
+import type { AgentYield, AgentLike } from '@orion/engine';
 import { costTracker, renderAgentYieldToText } from '../agent/index.js';
 import { handleContinueFrontend, resetConversation } from './continue-cmd.js';
 import { handleBtwAsync } from './btw-cmd.js';
@@ -212,7 +212,7 @@ export function ensureSingleInstance(port: number, label: string): net.Server {
   return srv;
 }
 
-export function requireRuntime(agent: GenericAgentLike, label: string, required: Record<string, unknown>): void {
+export function requireRuntime(agent: AgentLike, label: string, required: Record<string, unknown>): void {
   const missing = Object.entries(required)
     .filter(([, v]) => !v)
     .map(([k]) => k);
@@ -238,7 +238,7 @@ export function redirectLog(scriptFile: string, logName: string, label: string, 
   console.log(`[${label}] allow list: ${allowedLabel(allowed)}`);
 }
 
-export type { GenericAgentLike, TaskQueueLike } from '../agent/index.js';
+export type { AgentLike, TaskQueueLike } from '../agent/index.js';
 
 export interface AgentChatCtx {
   [key: string]: unknown;
@@ -249,11 +249,11 @@ export class AgentChatMixin {
   source = 'chat';
   splitLimit = 1500;
   pingInterval = 20;
-  agent: GenericAgentLike;
+  agent: AgentLike;
   userTasks: Map<string, { running: boolean }>;
   allowed: Set<string> = new Set();
 
-  constructor(agent: GenericAgentLike, userTasks: Map<string, { running: boolean }>) {
+  constructor(agent: AgentLike, userTasks: Map<string, { running: boolean }>) {
     this.agent = agent;
     this.userTasks = userTasks;
   }
@@ -368,7 +368,7 @@ export class AgentChatMixin {
         }
         if (item.next) {
           const y: AgentYield = item.next;
-          if (y.kind === 'thought') {
+          if (y.kind === 'thinking') {
             if (showThinking) {
               hasThought = true;
               thoughtBuf += y.content;

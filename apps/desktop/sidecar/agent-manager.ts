@@ -1,5 +1,6 @@
 import type http from 'node:http'
-import { AgentChatMixin, buildDoneText, GenericAgent } from '@orion/core'
+import { AgentChatMixin, buildDoneText } from '@orion/core'
+import { OrionAgent } from '@orion/engine'
 import { sseEvent } from './sse.js'
 import { clone } from './config.js'
 
@@ -15,7 +16,7 @@ export interface BackendSnapshot {
 
 export interface ActiveRequestState {
   running: boolean
-  agent?: GenericAgent
+  agent?: OrionAgent
 }
 
 export interface ActiveRequestEntry {
@@ -36,7 +37,7 @@ export type ApprovalResolver = (approvalId: string, decision: 'allow' | 'deny', 
 // Module-level agent state
 // ---------------------------------------------------------------------------
 
-export let agent: GenericAgent | null = null
+export let agent: OrionAgent | null = null
 export let agentIssue: string | null = null
 
 /** Per-request approval waiters, keyed by requestId then a per-call approvalId. */
@@ -49,8 +50,8 @@ export const approvalResolvers = new Map<string, ApprovalResolver>()
 // Agent lifecycle
 // ---------------------------------------------------------------------------
 
-function createAgent(llmNo = 0, cwd?: string): GenericAgent {
-  const next = new GenericAgent(cwd ? { cwd } : undefined)
+function createAgent(llmNo = 0, cwd?: string): OrionAgent {
+  const next = new OrionAgent(cwd ? { cwd } : undefined)
   next.verbose = false
   if (llmNo > 0) next.nextLlm(llmNo)
   return next
@@ -64,7 +65,7 @@ export function buildEmptySnapshot(): BackendSnapshot {
   }
 }
 
-export function exportSnapshot(current: GenericAgent | null): BackendSnapshot {
+export function exportSnapshot(current: OrionAgent | null): BackendSnapshot {
   if (!current) return buildEmptySnapshot()
   return {
     llmNo: current.llmNo,
@@ -73,7 +74,7 @@ export function exportSnapshot(current: GenericAgent | null): BackendSnapshot {
   }
 }
 
-export function restoreSnapshot(snapshot: BackendSnapshot, cwd?: string): GenericAgent {
+export function restoreSnapshot(snapshot: BackendSnapshot, cwd?: string): OrionAgent {
   const next = createAgent(snapshot.llmNo, cwd)
   next.history = [...(snapshot.history || [])]
   snapshot.sessionHistories.forEach((history, idx) => {
@@ -103,7 +104,7 @@ export function rebuildAgent(snapshot?: BackendSnapshot | null, cwd?: string): v
   }
 }
 
-export function getAgent(): GenericAgent {
+export function getAgent(): OrionAgent {
   if (!agent) {
     throw new Error(agentIssue || 'Agent unavailable')
   }
@@ -150,7 +151,7 @@ export class SseChatFrontend extends AgentChatMixin {
   splitLimit = 2000
   private cb: (event: string, data: string) => void
 
-  constructor(agent: GenericAgent, cb: (event: string, data: string) => void) {
+  constructor(agent: OrionAgent, cb: (event: string, data: string) => void) {
     super(agent, new Map())
     this.cb = cb
   }

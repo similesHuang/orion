@@ -39,7 +39,7 @@ export class ToolDeniedError extends Error {
   }
 }
 
-export class GenericAgentHandler extends BaseHandler {
+export class OrionAgentHandler extends BaseHandler {
   parent: HandlerParent;
   working: Record<string, unknown> = {};
   cwd: string;

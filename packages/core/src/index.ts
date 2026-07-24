@@ -7,3 +7,6 @@ export * from './agent/index.js'
 export * from './chat/index.js'
 export * from './reflect/index.js'
 import './plugins/langfuse-tracing.js'
+
+// Backward compat — re-export from @orion/engine
+export { OrionAgent, OrionAgentHandler, ToolRegistry, AgentError, agentRunnerLoop } from '@orion/engine';

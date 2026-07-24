@@ -8,7 +8,7 @@ const BRIDGE = globalPath('assets', 'python', 'ljqctrl_bg_bridge.py');
 function findGenericRoot(): string {
   const candidates = [
     globalPath('assets', 'python'),
-    path.resolve(globalPath('assets'), '..', 'GenericAgent'),
+    path.resolve(globalPath('assets'), '..', 'OrionAgent'),
   ];
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, 'ljqCtrlBg.py'))) return dir;

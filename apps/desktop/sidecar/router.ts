@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { AgentYield, buildDoneText, costTracker, GenericAgent, HELP_COMMANDS } from '@orion/core'
+import { AgentYield, buildDoneText, costTracker, OrionAgent, HELP_COMMANDS } from '@orion/core'
 import { sseEvent, json } from './sse.js'
 import {
   PROJECT_ROOT,
@@ -418,7 +418,7 @@ export function handleUpload(req: http.IncomingMessage, res: http.ServerResponse
 }
 
 export function handleChat(req: http.IncomingMessage, res: http.ServerResponse, cors: http.OutgoingHttpHeaders, activeRequests: ActiveRequestMap, url: URL): void {
-  let current: GenericAgent
+  let current: OrionAgent
   try {
     current = getAgent()
   } catch (error) {

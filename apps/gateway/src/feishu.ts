@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { AgentChatMixin, GenericAgentLike, loadMykey, ensureSingleInstance, requireRuntime, toAllowedSet, createWebhookServer } from '@orion/core';
-import { GenericAgent } from '@orion/core';
+import { AgentChatMixin, loadMykey, ensureSingleInstance, requireRuntime, toAllowedSet, createWebhookServer, OrionAgent } from '@orion/core';
+import type { AgentLike } from '@orion/core';
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -14,7 +14,7 @@ class FeishuFrontend extends AgentChatMixin {
   private tenantToken: string | null = null;
   private tokenExpire = 0;
 
-  constructor(agent: GenericAgentLike, appId: string, appSecret: string, allowed: Set<string>) {
+  constructor(agent: AgentLike, appId: string, appSecret: string, allowed: Set<string>) {
     super(agent, new Map());
     this.appId = appId;
     this.appSecret = appSecret;
@@ -94,9 +94,9 @@ async function main(): Promise<void> {
   const appId = String(keys.fs_app_id || '');
   const appSecret = String(keys.fs_app_secret || '');
   const allowed = toAllowedSet(keys.fs_allowed_users);
-  requireRuntime({} as GenericAgentLike, 'Feishu', { fs_app_id: appId, fs_app_secret: appSecret });
+  requireRuntime({} as AgentLike, 'Feishu', { fs_app_id: appId, fs_app_secret: appSecret });
 
-  const agent = new GenericAgent();
+  const agent = new OrionAgent();
   agent.verbose = false;
   const frontend = new FeishuFrontend(agent, appId, appSecret, allowed);
   const port = Number(process.env.FEISHU_PORT || 8083);

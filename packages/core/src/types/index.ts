@@ -177,6 +177,7 @@ export interface TaskQueueLike {
   get(block?: boolean, timeout?: number): Promise<{ done?: string; next?: AgentYield; source?: string } | null>;
 }
 
+/** @deprecated Use AgentLike from @orion/engine instead */
 export interface GenericAgentLike {
   verbose: boolean;
   llmNo: number;

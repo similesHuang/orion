@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
-import { GenericAgent } from './index.js';
+import { OrionAgent } from '@orion/engine';
 
 export interface PhaseInfo {
   name: string;
@@ -259,7 +259,7 @@ async function runSubagent(desc: string, prompt: string, options: SubagentOption
   fs.writeFileSync(filePath, prompt, 'utf-8');
   console.log(`[subagent] ${desc} -> ${filePath}`);
   note(session, `agent: ${desc}`);
-  const agent = new GenericAgent();
+  const agent = new OrionAgent();
   agent.verbose = false;
   agent.peerHint = false;
   agent.bannedTools = ['ask_user', 'start_long_term_update'];
