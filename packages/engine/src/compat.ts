@@ -13,4 +13,4 @@ export {
 
 export { webScan, webNavigate, webExecuteJs } from '@orion/core';
 
-export { resolveAllowedPath } from '@orion/core';
+export { resolveAllowedPath, consumeFile } from '@orion/core';

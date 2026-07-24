@@ -76,7 +76,7 @@ type GeneratorFn = (
   response: LLMResponse
 ) => StepOutcome | AsyncGenerator<string, StepOutcome, unknown>;
 
-function isAsyncGenerator(obj: unknown): obj is AsyncGenerator<unknown, unknown, unknown> {
+export function isAsyncGenerator(obj: unknown): obj is AsyncGenerator<unknown, unknown, unknown> {
   return (
     obj !== null &&
     typeof obj === 'object' &&
