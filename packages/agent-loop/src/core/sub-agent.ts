@@ -24,11 +24,16 @@ export class SubAgentPool {
   }
 
   async delegate(request: SubAgentRequest): Promise<SubAgentResult> {
-    // 获取 parent 的 LLM 配置
-    // 实际项目中应从 parent 获取 LLMProvider，这里简化为在创建时在外部传入
-    // 子 Agent 共享 parent 的配置但使用自己的消息队列
-    throw new Error('Not implemented — requires LLMProvider access from parent. '
-      + 'Use createSubAgent() static helper instead.');
+    const llm = this.parent.getLLMProvider();
+    const result = await createSubAgent(llm, {
+      description: request.description,
+      systemPrompt: undefined,
+      tools: request.tools,
+      maxTurns: request.maxTurns,
+    });
+    this.totalInputCost += result.cost.input;
+    this.totalOutputCost += result.cost.output;
+    return result;
   }
 
   getTotalCost(): { input: number; output: number; total: number } {
