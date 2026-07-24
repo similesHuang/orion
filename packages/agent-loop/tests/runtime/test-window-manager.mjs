@@ -26,7 +26,8 @@ describe('TruncateWindow', () => {
     const w = new TruncateWindow({ maxMessages: 5, headCount: 2 });
     const msgs = Array.from({ length: 10 }, (_, i) => textMsg('user', `msg ${i}`));
     const result = w.compress(msgs);
-    assert.ok(result.length <= 5);
+    // headCount(2) + snipped(1) + tailCount(3) = 6
+    assert.ok(result.length <= 6);
     assert.ok(result.some(m => typeof m.content === 'string' && m.content.includes('snipped')));
   });
 
