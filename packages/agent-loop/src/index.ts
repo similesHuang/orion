@@ -35,7 +35,7 @@ export type { SkillManifest, Skill } from './runtime/skill-loader.js';
 export { TaskStore } from './orch/task-store.js';
 export type { Task, TaskCreateOptions, TaskFilter } from './orch/task-store.js';
 
-export { MCPAdapter, buildMCPToolName } from './orch/mcp-adapter.js';
+export { MCPAdapter, buildMCPToolName, parseMCPToolName, isMCPTool } from './orch/mcp-adapter.js';
 export type { MCPClientConfig, MCPTransportType } from './orch/mcp-adapter.js';
 export { WorktreeManager } from './orch/worktree.js';
 export type { WorktreeInfo, CreateResult, RemoveResult } from './orch/worktree.js';
