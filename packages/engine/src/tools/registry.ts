@@ -26,6 +26,8 @@ export interface RegisteredTool {
 // ---------------------------------------------------------------------------
 
 export interface MCPServerConfig {
+  name?: string;
+  transport?: string;
   command: string;
   args?: string[];
   env?: Record<string, string>;
@@ -74,15 +76,16 @@ export class ToolRegistry {
   /**
    * Connect to all registered MCP servers and register their tools.
    *
-   * Currently a stub — the actual MCP client integration is implemented in
-   * Task 11. When connected, each server's tool list is fetched and each
-   * remote tool is registered with a proxy handler via `this.register()`.
+   * Each server's tool list is fetched and each remote tool is registered
+   * with a proxy handler via `this.register()`.
    */
   async connectMCPAll(): Promise<void> {
     if (this.mcpConnected) return;
 
-    // TODO: Task 11 — instantiate MCP client per server, list tools,
-    // and register a proxy handler for each.
+    const { registerMCPServerTools } = await import('./mcp/adapter.js');
+    for (const config of this.mcpServers.values()) {
+      await registerMCPServerTools(this, config);
+    }
 
     this.mcpConnected = true;
   }
